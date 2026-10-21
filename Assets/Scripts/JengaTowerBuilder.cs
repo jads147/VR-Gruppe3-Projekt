@@ -3,15 +3,44 @@ using UnityEngine;
 public class JengaTowerBuilder : MonoBehaviour
 {
     [SerializeField] private GameObject blockPrefab;
+    [SerializeField] private Transform blocksParent;
+    [SerializeField] private bool buildWhenPlayStarts = true;
     [SerializeField, Min(1)] private int layers = 18;
     [SerializeField, Min(0f)] private float gap = 0.001f;
 
     private void Start()
     {
+        if (buildWhenPlayStarts)
+            BuildTower();
+    }
+
+    public void BuildTower()
+    {
         if (blockPrefab == null)
         {
             Debug.LogError("Assign a block prefab to the Jenga tower builder.", this);
             return;
+        }
+
+        if (blocksParent == null)
+        {
+#if UNITY_EDITOR
+            if (!Application.isPlaying)
+            {
+                GameObject parentObject = new GameObject("Generated Blocks");
+                UnityEditor.Undo.RegisterCreatedObjectUndo(parentObject, "Create Tower Blocks Parent");
+                parentObject.transform.SetParent(transform, false);
+                UnityEditor.Undo.RecordObject(this, "Assign Tower Blocks Parent");
+                blocksParent = parentObject.transform;
+                UnityEditor.PrefabUtility.RecordPrefabInstancePropertyModifications(this);
+            }
+            else
+#endif
+            {
+                GameObject parentObject = new GameObject("Generated Blocks");
+                parentObject.transform.SetParent(transform, false);
+                blocksParent = parentObject.transform;
+            }
         }
 
         if (!TryGetBlockBounds(out Bounds bounds) ||
@@ -44,9 +73,22 @@ public class JengaTowerBuilder : MonoBehaviour
                     transform.rotation * (layerRotation * center);
 
                 // Place the bounds center correctly even when the pivot is offset.
-                Instantiate(blockPrefab,
-                    worldCenter - blockRotation * bounds.center,
-                    blockRotation);
+                Vector3 blockPosition = worldCenter - blockRotation * bounds.center;
+#if UNITY_EDITOR
+                if (!Application.isPlaying)
+                {
+                    GameObject instance = (GameObject)UnityEditor.PrefabUtility.InstantiatePrefab(blockPrefab,
+                        gameObject.scene);
+                    if (instance != null)
+                    {
+                        instance.transform.SetParent(blocksParent, true);
+                        UnityEditor.Undo.RegisterCreatedObjectUndo(instance, "Build Jenga Tower");
+                        instance.transform.SetPositionAndRotation(blockPosition, blockRotation);
+                    }
+                    continue;
+                }
+#endif
+                Instantiate(blockPrefab, blockPosition, blockRotation, blocksParent);
             }
         }
     }
