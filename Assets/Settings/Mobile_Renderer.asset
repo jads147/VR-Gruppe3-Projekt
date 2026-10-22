@@ -70,7 +70,7 @@ MonoBehaviour:
   m_Active: 1
   settings:
     passTag: RenderObjects
-    Event: 300
+    Event: 400
     filterSettings:
       RenderQueueType: 0
       LayerMask:

@@ -14,8 +14,9 @@ GameObject:
   - component: {fileID: 6752234757115162854}
   - component: {fileID: -5309242566906533740}
   - component: {fileID: -6281570287108982688}
+  - component: {fileID: 6181083604130535806}
   m_Layer: 6
-  m_Name: Qube
+  m_Name: NegativPointCube
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -69,7 +70,7 @@ MeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 2100000, guid: 951e7851d324bfb49b68e9bda644c4b1, type: 2}
+  - {fileID: 2100000, guid: 7def716a4017bf748ba27835a9b9c96e, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -271,3 +272,16 @@ MonoBehaviour:
   m_LimitAngularVelocity: 0
   m_MaxLinearVelocityDelta: 10
   m_MaxAngularVelocityDelta: 20
+--- !u!114 &6181083604130535806
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1705648935492585254}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2f97749af4d380744bb8ca46420c58d0, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Point_OBJ
+  points: -5

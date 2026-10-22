@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.XR;
+using UnityEngine.XR.Interaction.Toolkit.Interactables;
 using XRCommonUsages = UnityEngine.XR.CommonUsages;
 using XRInputDevice = UnityEngine.XR.InputDevice;
 
@@ -44,14 +45,18 @@ public class OrbitAroundTarget : MonoBehaviour
         Quaternion orbit = Quaternion.AngleAxis(angle, Vector3.up);
 
         Orbit(transform, orbit, rotateWithOrbit);
+        OrbitDynamicBodies(transform, orbit);
         if (orbitTogether == null)
             return;
 
         // Always rotate carried objects, otherwise the background shifts relative to the player.
         foreach (Transform carried in orbitTogether)
         {
-            if (carried != null)
-                Orbit(carried, orbit, true);
+            if (carried == null)
+                continue;
+
+            Orbit(carried, orbit, true);
+            OrbitDynamicBodies(carried, orbit);
         }
     }
 
@@ -61,6 +66,31 @@ public class OrbitAroundTarget : MonoBehaviour
         moved.position = target.position + orbit * offset;
         if (rotate)
             moved.rotation = orbit * moved.rotation;
+    }
+
+    // Non-kinematic rigidbodies ignore parent movement (physics writes their pose back),
+    // so they have to be orbited through the physics state, including their velocity.
+    private void OrbitDynamicBodies(Transform root, Quaternion orbit)
+    {
+        foreach (Rigidbody body in root.GetComponentsInChildren<Rigidbody>())
+        {
+            if (body.isKinematic || IsHeld(body))
+                continue;
+
+            Vector3 newPosition = target.position + orbit * (body.position - target.position);
+            Quaternion newRotation = orbit * body.rotation;
+            body.position = newPosition;
+            body.rotation = newRotation;
+            body.transform.SetPositionAndRotation(newPosition, newRotation);
+            body.linearVelocity = orbit * body.linearVelocity;
+            body.angularVelocity = orbit * body.angularVelocity;
+        }
+    }
+
+    // A held object follows the hand, not the level.
+    private static bool IsHeld(Rigidbody body)
+    {
+        return body.TryGetComponent(out XRGrabInteractable grab) && grab.isSelected;
     }
 
     private float ReadHorizontal()
