@@ -3,6 +3,14 @@ using UnityEngine;
 public class JengaTowerBuilder : MonoBehaviour
 {
     [SerializeField] private GameObject blockPrefab;
+    [SerializeField] private GameObject pointCubePrefab;
+    [SerializeField] private GameObject negativPointCubePrefab;
+    [SerializeField, Range(0f, 1f)] private float pointCubeChance = 0.15f;
+    [SerializeField, Range(0f, 1f)] private float negativPointCubeChance = 0.1f;
+    [Tooltip("Bottom layers that only use the plain block (they touch the ground and would score instantly).")]
+    [SerializeField, Min(0)] private int pointFreeBottomLayers = 1;
+    [SerializeField] private bool randomSeed = true;
+    [SerializeField] private int seed = 12345;
     [SerializeField] private Transform blocksParent;
     [SerializeField] private bool buildWhenPlayStarts = true;
     [SerializeField, Min(1)] private int layers = 18;
@@ -21,6 +29,8 @@ public class JengaTowerBuilder : MonoBehaviour
             Debug.LogError("Assign a block prefab to the Jenga tower builder.", this);
             return;
         }
+
+        ClearTower();
 
         if (blocksParent == null)
         {
@@ -54,6 +64,7 @@ public class JengaTowerBuilder : MonoBehaviour
         bool longSideAlongZ = bounds.size.z > bounds.size.x;
         float width = Mathf.Min(bounds.size.x, bounds.size.z);
         float spacing = width + Mathf.Max(0f, gap);
+        System.Random random = new System.Random(randomSeed ? System.Environment.TickCount : seed);
 
         for (int layer = 0; layer < Mathf.Max(1, layers); layer++)
         {
@@ -63,6 +74,7 @@ public class JengaTowerBuilder : MonoBehaviour
 
             for (int block = 0; block < 3; block++)
             {
+                GameObject prefab = PickPrefab(random, layer >= pointFreeBottomLayers);
                 Vector3 center = new Vector3(
                     0f,
                     bounds.size.y * (layer + 0.5f),
@@ -77,7 +89,7 @@ public class JengaTowerBuilder : MonoBehaviour
 #if UNITY_EDITOR
                 if (!Application.isPlaying)
                 {
-                    GameObject instance = (GameObject)UnityEditor.PrefabUtility.InstantiatePrefab(blockPrefab,
+                    GameObject instance = (GameObject)UnityEditor.PrefabUtility.InstantiatePrefab(prefab,
                         gameObject.scene);
                     if (instance != null)
                     {
@@ -88,9 +100,41 @@ public class JengaTowerBuilder : MonoBehaviour
                     continue;
                 }
 #endif
-                Instantiate(blockPrefab, blockPosition, blockRotation, blocksParent);
+                Instantiate(prefab, blockPosition, blockRotation, blocksParent);
             }
         }
+    }
+
+    public void ClearTower()
+    {
+        if (blocksParent == null)
+            return;
+
+        for (int i = blocksParent.childCount - 1; i >= 0; i--)
+        {
+            GameObject child = blocksParent.GetChild(i).gameObject;
+#if UNITY_EDITOR
+            if (!Application.isPlaying)
+            {
+                UnityEditor.Undo.DestroyObjectImmediate(child);
+                continue;
+            }
+#endif
+            Destroy(child);
+        }
+    }
+
+    private GameObject PickPrefab(System.Random random, bool allowPointCubes)
+    {
+        // Point cubes are assumed to have the same size as the block prefab.
+        double roll = random.NextDouble();
+        if (!allowPointCubes)
+            return blockPrefab;
+        if (roll < pointCubeChance && pointCubePrefab != null)
+            return pointCubePrefab;
+        if (roll < pointCubeChance + negativPointCubeChance && negativPointCubePrefab != null)
+            return negativPointCubePrefab;
+        return blockPrefab;
     }
 
     private bool TryGetBlockBounds(out Bounds bounds)

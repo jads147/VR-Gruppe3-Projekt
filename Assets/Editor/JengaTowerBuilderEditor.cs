@@ -14,5 +14,11 @@ public class JengaTowerBuilderEditor : Editor
             foreach (Object selected in targets)
                 ((JengaTowerBuilder)selected).BuildTower();
         }
+
+        if (GUILayout.Button("Clear Tower"))
+        {
+            foreach (Object selected in targets)
+                ((JengaTowerBuilder)selected).ClearTower();
+        }
     }
 }
