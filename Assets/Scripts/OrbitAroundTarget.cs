@@ -12,6 +12,8 @@ public class OrbitAroundTarget : MonoBehaviour
     [SerializeField] private float orbitSpeed = 90f;
     [SerializeField, Range(0f, 1f)] private float deadzone = 0.15f;
     [SerializeField] private bool rotateWithOrbit = true;
+    [Tooltip("Orbited and rotated together with this GameObject (e.g. the level root), so only the target appears to turn.")]
+    [SerializeField] private Transform[] orbitTogether;
     [Tooltip("Falls back to the XR device API (left controller primary 2D axis) when the action delivers no input.")]
     [SerializeField] private bool useXRDeviceFallback = true;
 
@@ -39,12 +41,26 @@ public class OrbitAroundTarget : MonoBehaviour
             return;
 
         float angle = horizontal * orbitSpeed * Time.deltaTime;
-        Vector3 offset = transform.position - target.position;
         Quaternion orbit = Quaternion.AngleAxis(angle, Vector3.up);
 
-        transform.position = target.position + orbit * offset;
-        if (rotateWithOrbit)
-            transform.rotation = orbit * transform.rotation;
+        Orbit(transform, orbit, rotateWithOrbit);
+        if (orbitTogether == null)
+            return;
+
+        // Always rotate carried objects, otherwise the background shifts relative to the player.
+        foreach (Transform carried in orbitTogether)
+        {
+            if (carried != null)
+                Orbit(carried, orbit, true);
+        }
+    }
+
+    private void Orbit(Transform moved, Quaternion orbit, bool rotate)
+    {
+        Vector3 offset = moved.position - target.position;
+        moved.position = target.position + orbit * offset;
+        if (rotate)
+            moved.rotation = orbit * moved.rotation;
     }
 
     private float ReadHorizontal()

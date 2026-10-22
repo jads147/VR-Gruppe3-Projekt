@@ -144,7 +144,7 @@ GameObject:
   - component: {fileID: 6764171532160479473}
   - component: {fileID: 471519447933645348}
   - component: {fileID: 3093726263985772977}
-  - component: {fileID: 2170568958324554542}
+  - component: {fileID: 535352230134289474}
   m_Layer: 0
   m_Name: Portal
   m_TagString: Untagged
@@ -264,7 +264,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: UnityEngine.UI::UnityEngine.UI.Mask
   m_ShowMaskGraphic: 1
---- !u!114 &2170568958324554542
+--- !u!114 &535352230134289474
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -273,7 +273,7 @@ MonoBehaviour:
   m_GameObject: {fileID: 5733288039791048216}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 284327cf4b01db143bc5ba481eae0830, type: 3}
+  m_Script: {fileID: 11500000, guid: 5a6ec74f5c0d4f5aa58c4b6bd5f39d21, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ChangeLayerOnTrigger
-  targetLayerName: Level
+  targetLayerName: Jenga

@@ -14,7 +14,7 @@ GameObject:
   - component: {fileID: 6752234757115162854}
   - component: {fileID: -5309242566906533740}
   - component: {fileID: -6281570287108982688}
-  m_Layer: 3
+  m_Layer: 6
   m_Name: Qube
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -140,7 +140,7 @@ Rigidbody:
   m_IsKinematic: 0
   m_Interpolate: 0
   m_Constraints: 0
-  m_CollisionDetection: 0
+  m_CollisionDetection: 1
 --- !u!114 &-6281570287108982688
 MonoBehaviour:
   m_ObjectHideFlags: 0

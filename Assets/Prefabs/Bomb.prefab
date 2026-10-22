@@ -230,13 +230,13 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::BallExplosion
   collisionLayers:
     serializedVersion: 2
-    m_Bits: 8
+    m_Bits: 72
   radius: 2.5
   force: 12
   upwardsModifier: 0.4
   affectedLayers:
     serializedVersion: 2
-    m_Bits: 8
+    m_Bits: 64
   forceMode: 1
   particleMaterial: {fileID: 2100000, guid: 5ade36451c2148169b9f55501250c869, type: 2}
   effectScale: 1
