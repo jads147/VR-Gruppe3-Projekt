@@ -41,7 +41,19 @@ public class OrbitAroundTarget : MonoBehaviour
         if (Mathf.Abs(horizontal) <= deadzone)
             return;
 
-        float angle = horizontal * orbitSpeed * Time.deltaTime;
+        ApplyInput(horizontal);
+    }
+
+    /// <summary>
+    /// Orbits for one frame as if the stick were pushed to <paramref name="horizontal"/> (-1 = left, 1 = right).
+    /// Call every frame for continuous orbiting (e.g. from an ArrowButton).
+    /// </summary>
+    public void ApplyInput(float horizontal)
+    {
+        if (target == null)
+            return;
+
+        float angle = Mathf.Clamp(horizontal, -1f, 1f) * orbitSpeed * Time.deltaTime;
         Quaternion orbit = Quaternion.AngleAxis(angle, Vector3.up);
 
         Orbit(transform, orbit, rotateWithOrbit);
