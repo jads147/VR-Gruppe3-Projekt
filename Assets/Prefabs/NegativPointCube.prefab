@@ -15,6 +15,7 @@ GameObject:
   - component: {fileID: -5309242566906533740}
   - component: {fileID: -6281570287108982688}
   - component: {fileID: 6181083604130535806}
+  - component: {fileID: 7473714398205788423}
   m_Layer: 6
   m_Name: NegativPointCube
   m_TagString: Untagged
@@ -285,3 +286,26 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Point_OBJ
   points: -5
+--- !u!114 &7473714398205788423
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1705648935492585254}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8621d8727c436c74dab5f9f4752a3b85, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ImpactSound
+  clips:
+  - {fileID: 8300000, guid: 87667eb51e1f414418af2893ae8513fa, type: 3}
+  minImpactSpeed: 0.4
+  maxImpactSpeed: 6
+  maxVolume: 1
+  cooldown: 0.1
+  silentAfterSpawn: 1
+  maxSoundsPerFrame: 4
+  pitchVariation: 0.1
+  minDistance: 7
+  maxDistance: 15

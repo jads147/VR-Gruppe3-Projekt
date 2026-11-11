@@ -12,6 +12,7 @@ GameObject:
   - component: {fileID: 8712653597618057819}
   - component: {fileID: 4722489389562238431}
   - component: {fileID: 3502564494453797513}
+  - component: {fileID: 7942737656572017974}
   m_Layer: 0
   m_Name: Bomb
   m_TagString: Untagged
@@ -244,6 +245,24 @@ MonoBehaviour:
   hotColor: {r: 1, g: 0.85, b: 0.25, a: 1}
   fireColor: {r: 1, g: 0.22, b: 0.04, a: 1}
   smokeColor: {r: 0.22, g: 0.14, b: 0.28, a: 0.65}
+--- !u!114 &7942737656572017974
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8367924185620076719}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5bbf00e56f51bac408f0165078007561, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::GrabSound
+  grabClip: {fileID: 8300000, guid: 3d5b000beb6ee7b46910cdc769defa79, type: 3}
+  grabVolume: 1
+  throwClip: {fileID: 8300000, guid: fd5f03c979400b84083584049a343aab, type: 3}
+  throwVolume: 1
+  throwSpeedThreshold: 1.5
+  pitchVariation: 0.08
 --- !u!1001 &2192983238562354462
 PrefabInstance:
   m_ObjectHideFlags: 0

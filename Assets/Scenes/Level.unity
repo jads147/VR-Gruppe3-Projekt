@@ -4570,6 +4570,8 @@ MonoBehaviour:
   spawnItem: {fileID: 8367924185620076719, guid: e62dfaef42e7e0a49af0eb71c34ce6f2, type: 3}
   spawnPoint: {fileID: 624365232}
   orbitParent: {fileID: 1639252691}
+  spawnSound: {fileID: 8300000, guid: 5ccd14085c15313479a1a0edd0fcdc01, type: 3}
+  spawnVolume: 1
 --- !u!114 &1057270842
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -5797,6 +5799,8 @@ MonoBehaviour:
   spawnItem: {fileID: 3026731844855938184, guid: e276db5b50c931144b48543191f92612, type: 3}
   spawnPoint: {fileID: 624365232}
   orbitParent: {fileID: 1639252691}
+  spawnSound: {fileID: 8300000, guid: 5ccd14085c15313479a1a0edd0fcdc01, type: 3}
+  spawnVolume: 1
 --- !u!114 &1396249745
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -6225,6 +6229,8 @@ MonoBehaviour:
   spawnItem: {fileID: 2085755190439072, guid: 09556f85c4234ed47b9a337426a81938, type: 3}
   spawnPoint: {fileID: 624365232}
   orbitParent: {fileID: 1639252691}
+  spawnSound: {fileID: 8300000, guid: 5ccd14085c15313479a1a0edd0fcdc01, type: 3}
+  spawnVolume: 1
 --- !u!114 &1465115258
 MonoBehaviour:
   m_ObjectHideFlags: 0

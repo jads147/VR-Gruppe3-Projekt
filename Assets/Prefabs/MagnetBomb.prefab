@@ -12,6 +12,7 @@ GameObject:
   - component: {fileID: 6200936466700350697}
   - component: {fileID: 725524664858500895}
   - component: {fileID: 1419539402827042547}
+  - component: {fileID: 7424968946659071467}
   m_Layer: 0
   m_Name: MagnetBomb
   m_TagString: Untagged
@@ -243,6 +244,24 @@ MonoBehaviour:
   sparkCount: 48
   outerColor: {r: 0.45, g: 0.15, b: 1, a: 1}
   coreColor: {r: 0.25, g: 0.9, b: 1, a: 1}
+--- !u!114 &7424968946659071467
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3026731844855938184}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5bbf00e56f51bac408f0165078007561, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::GrabSound
+  grabClip: {fileID: 8300000, guid: 3d5b000beb6ee7b46910cdc769defa79, type: 3}
+  grabVolume: 1
+  throwClip: {fileID: 8300000, guid: fd5f03c979400b84083584049a343aab, type: 3}
+  throwVolume: 1
+  throwSpeedThreshold: 1.5
+  pitchVariation: 0.08
 --- !u!1001 &2405860208404443163
 PrefabInstance:
   m_ObjectHideFlags: 0
