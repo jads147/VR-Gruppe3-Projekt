@@ -231,9 +231,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::BallImplosion
   collisionLayers:
     serializedVersion: 2
-    m_Bits: 73
-  radius: 3
-  force: 25
+    m_Bits: 1096
+  radius: 4
+  force: 50
   affectedLayers:
     serializedVersion: 2
     m_Bits: 64
