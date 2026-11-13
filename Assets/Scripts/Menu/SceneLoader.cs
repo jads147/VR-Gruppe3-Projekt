@@ -6,5 +6,6 @@ public class SceneLoader : ScriptableObject
     public void LoadScene(string sceneName)
     {
         UnityEngine.SceneManagement.SceneManager.LoadScene(sceneName);
+        GameManager.Instance.ResetGame();
     }
 }

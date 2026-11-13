@@ -32,4 +32,10 @@ public class GameManager : MonoBehaviour
     {
         Score += points;
     }
+
+    public void ResetGame()
+    {
+        Score = 0;
+    }
+
 }
