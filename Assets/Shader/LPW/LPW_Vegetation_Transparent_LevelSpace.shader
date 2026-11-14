@@ -1,4 +1,4 @@
-// PATCHED COPY of the Low Poly Wind shader (Nicrom): wind is computed in level space.
+// PATCHED COPY of the Low Poly Wind shader (Nicrom): wind in level space + occluder clipping.
 // Do not regenerate with Amplify Shader Editor, the patch would be lost.
 // Made with Amplify Shader Editor v1.9.9.8
 // Available at the Unity Asset Store - http://u3d.as/y3X 
@@ -358,6 +358,101 @@ Shader "Nicrom/LPW/Low Poly Vegetation Transparent (Level Space)"
 			}
 			// --- End Level Space patch ---
 
+			// --- Occluder patch (see LPWVegetationOccluders.cs) ---
+			// Every occluder (e.g. a Jenga block) is an oriented box. A pixel of a plant is discarded when the
+			// ray from the camera through the pixel hits the box behind (or around) it, i.e. when the plant
+			// covers the box on screen. Near misses dissolve with a dither pattern over a soft edge.
+			float4 _LPWOccluderSphere[64]; // xyz = world center, w = bounding radius incl. soft edge
+			float4 _LPWOccluderRow0[64];   // rows of the world -> box matrix (rotation + translation only)
+			float4 _LPWOccluderRow1[64];
+			float4 _LPWOccluderRow2[64];
+			float4 _LPWOccluderBox[64];    // xyz = half extents, w = soft edge width (world units)
+			float4 _LPWOccluderVisibility[64]; // x = how visible the occluder is to the camera (0 = behind other geometry)
+			float _LPWOccluderCount;
+			float _LPWOccluderEnabled;
+			float3 _LPWViewerPosition;     // main camera (XR center eye), used by the shadow pass
+			float _LPWOccluderShadows;      // 1 = also remove shadows of hidden plant parts
+
+			float3 LPW_ToOccluderSpace( int i, float3 positionWS )
+			{
+				float4 p = float4( positionWS, 1.0 );
+				return float3( dot( _LPWOccluderRow0[i], p ), dot( _LPWOccluderRow1[i], p ), dot( _LPWOccluderRow2[i], p ) );
+			}
+
+			// 0 = visible, 1 = fully hidden.
+			float LPW_OccluderHidden( float3 positionWS, float3 cameraWS )
+			{
+				float3 toPixel = positionWS - cameraWS;
+				float pixelDistance = length( toPixel );
+				float3 viewDir = toPixel / max( pixelDistance, 1e-5 );
+				float hidden = 0.0;
+				int count = _LPWOccluderEnabled > 0.5 ? clamp( (int)_LPWOccluderCount, 0, 64 ) : 0;
+
+				// Note: no return / continue inside this loop. FXC (D3D11) produces invalid bytecode
+				// ("relative index ... uninitialized") for early exits in loops that index arrays.
+				[loop]
+				for ( int i = 0; i < count; i++ )
+				{
+					// Cheap reject: the view ray misses the bounding sphere, or the box lies completely in front of the pixel.
+					float4 sphere = _LPWOccluderSphere[i];
+					float3 toCenter = sphere.xyz - cameraWS;
+					float projected = dot( toCenter, viewDir );
+					float visibility = _LPWOccluderVisibility[i].x;
+					bool candidate = visibility > 0.0 &&
+									 dot( toCenter, toCenter ) - projected * projected <= sphere.w * sphere.w &&
+									 projected + sphere.w >= pixelDistance;
+
+					if ( candidate )
+					{
+						float4 box = _LPWOccluderBox[i];
+						float3 extents = box.xyz;
+						float soft = box.w;
+
+						// Ray in box space: origin = camera, t = 1 at this pixel.
+						float3 origin = LPW_ToOccluderSpace( i, cameraWS );
+						float3 rayDir = LPW_ToOccluderSpace( i, positionWS ) - origin;
+
+						// Exact ray / box test (slab method).
+						float3 safeDir = rayDir + ( abs( rayDir ) < 1e-6 ) * 1e-6;
+						float3 t0 = ( -extents - origin ) / safeDir;
+						float3 t1 = ( extents - origin ) / safeDir;
+						float3 tMin = min( t0, t1 );
+						float3 tMax = max( t0, t1 );
+						float tNear = max( max( tMin.x, tMin.y ), tMin.z );
+						float tFar = min( min( tMax.x, tMax.y ), tMax.z );
+
+						// Closest approach between the ray and the box (alternating projections), for the soft edge.
+						float rayLengthSq = max( dot( rayDir, rayDir ), 1e-8 );
+						float t = dot( -origin, rayDir ) / rayLengthSq;
+						float3 p = origin + rayDir * t;
+						[unroll]
+						for ( int k = 0; k < 2; k++ )
+						{
+							t = dot( clamp( p, -extents, extents ) - origin, rayDir ) / rayLengthSq;
+							p = origin + rayDir * t;
+						}
+						float missDistance = length( p - clamp( p, -extents, extents ) );
+						float softHidden = ( t > 1.0 ) ? 1.0 - smoothstep( 0.0, max( soft, 1e-5 ), missDistance ) : 0.0;
+
+						// Box behind the pixel (or containing it): the plant covers the box -> fully hidden.
+						float hardHidden = ( tNear <= tFar && tFar >= 1.0 ) ? 1.0 : 0.0;
+
+						hidden = max( hidden, max( hardHidden, softHidden * step( 1e-5, soft ) ) * visibility );
+					}
+				}
+
+				return hidden;
+			}
+
+			void LPW_ClipOccluded( float3 positionWS, float2 pixelPosition, float3 cameraWS )
+			{
+				float hidden = LPW_OccluderHidden( positionWS, cameraWS );
+				// Interleaved gradient noise as dither pattern for the soft edge.
+				float noise = frac( 52.9829189 * frac( dot( pixelPosition, float2( 0.06711056, 0.00583715 ) ) ) );
+				clip( noise - hidden );
+			}
+			// --- End Occluder patch ---
+
 			CBUFFER_START(UnityPerMaterial)
 			float4 _NoiseTextureTilling;
 			float4 _Color;
@@ -658,6 +753,7 @@ Shader "Nicrom/LPW/Low Poly Vegetation Transparent (Level Space)"
 				float3 ViewDirWS = GetWorldSpaceNormalizeViewDir( PositionWS );
 				float4 ShadowCoord = shadowCoord;
 				float4 ScreenPosNorm = float4( GetNormalizedScreenSpaceUV( input.positionCS ), input.positionCS.zw );
+				LPW_ClipOccluded( input.positionWS, input.positionCS.xy, GetCameraPositionWS() );
 				float4 ClipPos = ComputeClipSpacePosition( ScreenPosNorm.xy, input.positionCS.z ) * input.positionCS.w;
 				float4 ScreenPos = ComputeScreenPos( ClipPos );
 				float3 TangentWS = input.tangentWS.xyz * renormFactor;
@@ -1041,6 +1137,101 @@ Shader "Nicrom/LPW/Low Poly Vegetation Transparent (Level Space)"
 			}
 			// --- End Level Space patch ---
 
+			// --- Occluder patch (see LPWVegetationOccluders.cs) ---
+			// Every occluder (e.g. a Jenga block) is an oriented box. A pixel of a plant is discarded when the
+			// ray from the camera through the pixel hits the box behind (or around) it, i.e. when the plant
+			// covers the box on screen. Near misses dissolve with a dither pattern over a soft edge.
+			float4 _LPWOccluderSphere[64]; // xyz = world center, w = bounding radius incl. soft edge
+			float4 _LPWOccluderRow0[64];   // rows of the world -> box matrix (rotation + translation only)
+			float4 _LPWOccluderRow1[64];
+			float4 _LPWOccluderRow2[64];
+			float4 _LPWOccluderBox[64];    // xyz = half extents, w = soft edge width (world units)
+			float4 _LPWOccluderVisibility[64]; // x = how visible the occluder is to the camera (0 = behind other geometry)
+			float _LPWOccluderCount;
+			float _LPWOccluderEnabled;
+			float3 _LPWViewerPosition;     // main camera (XR center eye), used by the shadow pass
+			float _LPWOccluderShadows;      // 1 = also remove shadows of hidden plant parts
+
+			float3 LPW_ToOccluderSpace( int i, float3 positionWS )
+			{
+				float4 p = float4( positionWS, 1.0 );
+				return float3( dot( _LPWOccluderRow0[i], p ), dot( _LPWOccluderRow1[i], p ), dot( _LPWOccluderRow2[i], p ) );
+			}
+
+			// 0 = visible, 1 = fully hidden.
+			float LPW_OccluderHidden( float3 positionWS, float3 cameraWS )
+			{
+				float3 toPixel = positionWS - cameraWS;
+				float pixelDistance = length( toPixel );
+				float3 viewDir = toPixel / max( pixelDistance, 1e-5 );
+				float hidden = 0.0;
+				int count = _LPWOccluderEnabled > 0.5 ? clamp( (int)_LPWOccluderCount, 0, 64 ) : 0;
+
+				// Note: no return / continue inside this loop. FXC (D3D11) produces invalid bytecode
+				// ("relative index ... uninitialized") for early exits in loops that index arrays.
+				[loop]
+				for ( int i = 0; i < count; i++ )
+				{
+					// Cheap reject: the view ray misses the bounding sphere, or the box lies completely in front of the pixel.
+					float4 sphere = _LPWOccluderSphere[i];
+					float3 toCenter = sphere.xyz - cameraWS;
+					float projected = dot( toCenter, viewDir );
+					float visibility = _LPWOccluderVisibility[i].x;
+					bool candidate = visibility > 0.0 &&
+									 dot( toCenter, toCenter ) - projected * projected <= sphere.w * sphere.w &&
+									 projected + sphere.w >= pixelDistance;
+
+					if ( candidate )
+					{
+						float4 box = _LPWOccluderBox[i];
+						float3 extents = box.xyz;
+						float soft = box.w;
+
+						// Ray in box space: origin = camera, t = 1 at this pixel.
+						float3 origin = LPW_ToOccluderSpace( i, cameraWS );
+						float3 rayDir = LPW_ToOccluderSpace( i, positionWS ) - origin;
+
+						// Exact ray / box test (slab method).
+						float3 safeDir = rayDir + ( abs( rayDir ) < 1e-6 ) * 1e-6;
+						float3 t0 = ( -extents - origin ) / safeDir;
+						float3 t1 = ( extents - origin ) / safeDir;
+						float3 tMin = min( t0, t1 );
+						float3 tMax = max( t0, t1 );
+						float tNear = max( max( tMin.x, tMin.y ), tMin.z );
+						float tFar = min( min( tMax.x, tMax.y ), tMax.z );
+
+						// Closest approach between the ray and the box (alternating projections), for the soft edge.
+						float rayLengthSq = max( dot( rayDir, rayDir ), 1e-8 );
+						float t = dot( -origin, rayDir ) / rayLengthSq;
+						float3 p = origin + rayDir * t;
+						[unroll]
+						for ( int k = 0; k < 2; k++ )
+						{
+							t = dot( clamp( p, -extents, extents ) - origin, rayDir ) / rayLengthSq;
+							p = origin + rayDir * t;
+						}
+						float missDistance = length( p - clamp( p, -extents, extents ) );
+						float softHidden = ( t > 1.0 ) ? 1.0 - smoothstep( 0.0, max( soft, 1e-5 ), missDistance ) : 0.0;
+
+						// Box behind the pixel (or containing it): the plant covers the box -> fully hidden.
+						float hardHidden = ( tNear <= tFar && tFar >= 1.0 ) ? 1.0 : 0.0;
+
+						hidden = max( hidden, max( hardHidden, softHidden * step( 1e-5, soft ) ) * visibility );
+					}
+				}
+
+				return hidden;
+			}
+
+			void LPW_ClipOccluded( float3 positionWS, float2 pixelPosition, float3 cameraWS )
+			{
+				float hidden = LPW_OccluderHidden( positionWS, cameraWS );
+				// Interleaved gradient noise as dither pattern for the soft edge.
+				float noise = frac( 52.9829189 * frac( dot( pixelPosition, float2( 0.06711056, 0.00583715 ) ) ) );
+				clip( noise - hidden );
+			}
+			// --- End Occluder patch ---
+
 			CBUFFER_START(UnityPerMaterial)
 			float4 _NoiseTextureTilling;
 			float4 _Color;
@@ -1294,6 +1485,8 @@ Shader "Nicrom/LPW/Low Poly Vegetation Transparent (Level Space)"
 				float3 PositionRWS = GetCameraRelativePositionWS( input.positionWS );
 				float4 ShadowCoord = shadowCoord;
 				float4 ScreenPosNorm = float4( GetNormalizedScreenSpaceUV( input.positionCS ), input.positionCS.zw );
+				if ( _LPWOccluderShadows > 0.5 )
+					LPW_ClipOccluded( input.positionWS, input.positionCS.xy, _LPWViewerPosition );
 				float4 ClipPos = ComputeClipSpacePosition( ScreenPosNorm.xy, input.positionCS.z ) * input.positionCS.w;
 				float4 ScreenPos = ComputeScreenPos( ClipPos );
 
@@ -1435,6 +1628,101 @@ Shader "Nicrom/LPW/Low Poly Vegetation Transparent (Level Space)"
 				return _LPWLevelSpaceEnabled > 0.5 ? mul( (float3x3)_LPWLevelLocalToWorld, directionLS ) : directionLS;
 			}
 			// --- End Level Space patch ---
+
+			// --- Occluder patch (see LPWVegetationOccluders.cs) ---
+			// Every occluder (e.g. a Jenga block) is an oriented box. A pixel of a plant is discarded when the
+			// ray from the camera through the pixel hits the box behind (or around) it, i.e. when the plant
+			// covers the box on screen. Near misses dissolve with a dither pattern over a soft edge.
+			float4 _LPWOccluderSphere[64]; // xyz = world center, w = bounding radius incl. soft edge
+			float4 _LPWOccluderRow0[64];   // rows of the world -> box matrix (rotation + translation only)
+			float4 _LPWOccluderRow1[64];
+			float4 _LPWOccluderRow2[64];
+			float4 _LPWOccluderBox[64];    // xyz = half extents, w = soft edge width (world units)
+			float4 _LPWOccluderVisibility[64]; // x = how visible the occluder is to the camera (0 = behind other geometry)
+			float _LPWOccluderCount;
+			float _LPWOccluderEnabled;
+			float3 _LPWViewerPosition;     // main camera (XR center eye), used by the shadow pass
+			float _LPWOccluderShadows;      // 1 = also remove shadows of hidden plant parts
+
+			float3 LPW_ToOccluderSpace( int i, float3 positionWS )
+			{
+				float4 p = float4( positionWS, 1.0 );
+				return float3( dot( _LPWOccluderRow0[i], p ), dot( _LPWOccluderRow1[i], p ), dot( _LPWOccluderRow2[i], p ) );
+			}
+
+			// 0 = visible, 1 = fully hidden.
+			float LPW_OccluderHidden( float3 positionWS, float3 cameraWS )
+			{
+				float3 toPixel = positionWS - cameraWS;
+				float pixelDistance = length( toPixel );
+				float3 viewDir = toPixel / max( pixelDistance, 1e-5 );
+				float hidden = 0.0;
+				int count = _LPWOccluderEnabled > 0.5 ? clamp( (int)_LPWOccluderCount, 0, 64 ) : 0;
+
+				// Note: no return / continue inside this loop. FXC (D3D11) produces invalid bytecode
+				// ("relative index ... uninitialized") for early exits in loops that index arrays.
+				[loop]
+				for ( int i = 0; i < count; i++ )
+				{
+					// Cheap reject: the view ray misses the bounding sphere, or the box lies completely in front of the pixel.
+					float4 sphere = _LPWOccluderSphere[i];
+					float3 toCenter = sphere.xyz - cameraWS;
+					float projected = dot( toCenter, viewDir );
+					float visibility = _LPWOccluderVisibility[i].x;
+					bool candidate = visibility > 0.0 &&
+									 dot( toCenter, toCenter ) - projected * projected <= sphere.w * sphere.w &&
+									 projected + sphere.w >= pixelDistance;
+
+					if ( candidate )
+					{
+						float4 box = _LPWOccluderBox[i];
+						float3 extents = box.xyz;
+						float soft = box.w;
+
+						// Ray in box space: origin = camera, t = 1 at this pixel.
+						float3 origin = LPW_ToOccluderSpace( i, cameraWS );
+						float3 rayDir = LPW_ToOccluderSpace( i, positionWS ) - origin;
+
+						// Exact ray / box test (slab method).
+						float3 safeDir = rayDir + ( abs( rayDir ) < 1e-6 ) * 1e-6;
+						float3 t0 = ( -extents - origin ) / safeDir;
+						float3 t1 = ( extents - origin ) / safeDir;
+						float3 tMin = min( t0, t1 );
+						float3 tMax = max( t0, t1 );
+						float tNear = max( max( tMin.x, tMin.y ), tMin.z );
+						float tFar = min( min( tMax.x, tMax.y ), tMax.z );
+
+						// Closest approach between the ray and the box (alternating projections), for the soft edge.
+						float rayLengthSq = max( dot( rayDir, rayDir ), 1e-8 );
+						float t = dot( -origin, rayDir ) / rayLengthSq;
+						float3 p = origin + rayDir * t;
+						[unroll]
+						for ( int k = 0; k < 2; k++ )
+						{
+							t = dot( clamp( p, -extents, extents ) - origin, rayDir ) / rayLengthSq;
+							p = origin + rayDir * t;
+						}
+						float missDistance = length( p - clamp( p, -extents, extents ) );
+						float softHidden = ( t > 1.0 ) ? 1.0 - smoothstep( 0.0, max( soft, 1e-5 ), missDistance ) : 0.0;
+
+						// Box behind the pixel (or containing it): the plant covers the box -> fully hidden.
+						float hardHidden = ( tNear <= tFar && tFar >= 1.0 ) ? 1.0 : 0.0;
+
+						hidden = max( hidden, max( hardHidden, softHidden * step( 1e-5, soft ) ) * visibility );
+					}
+				}
+
+				return hidden;
+			}
+
+			void LPW_ClipOccluded( float3 positionWS, float2 pixelPosition, float3 cameraWS )
+			{
+				float hidden = LPW_OccluderHidden( positionWS, cameraWS );
+				// Interleaved gradient noise as dither pattern for the soft edge.
+				float noise = frac( 52.9829189 * frac( dot( pixelPosition, float2( 0.06711056, 0.00583715 ) ) ) );
+				clip( noise - hidden );
+			}
+			// --- End Occluder patch ---
 
 			CBUFFER_START(UnityPerMaterial)
 			float4 _NoiseTextureTilling;
@@ -1675,6 +1963,7 @@ Shader "Nicrom/LPW/Low Poly Vegetation Transparent (Level Space)"
 				float3 PositionRWS = GetCameraRelativePositionWS( input.positionWS );
 				float4 ShadowCoord = shadowCoord;
 				float4 ScreenPosNorm = float4( GetNormalizedScreenSpaceUV( input.positionCS ), input.positionCS.zw );
+				LPW_ClipOccluded( input.positionWS, input.positionCS.xy, GetCameraPositionWS() );
 				float4 ClipPos = ComputeClipSpacePosition( ScreenPosNorm.xy, input.positionCS.z ) * input.positionCS.w;
 				float4 ScreenPos = ComputeScreenPos( ClipPos );
 
@@ -1800,6 +2089,101 @@ Shader "Nicrom/LPW/Low Poly Vegetation Transparent (Level Space)"
 				return _LPWLevelSpaceEnabled > 0.5 ? mul( (float3x3)_LPWLevelLocalToWorld, directionLS ) : directionLS;
 			}
 			// --- End Level Space patch ---
+
+			// --- Occluder patch (see LPWVegetationOccluders.cs) ---
+			// Every occluder (e.g. a Jenga block) is an oriented box. A pixel of a plant is discarded when the
+			// ray from the camera through the pixel hits the box behind (or around) it, i.e. when the plant
+			// covers the box on screen. Near misses dissolve with a dither pattern over a soft edge.
+			float4 _LPWOccluderSphere[64]; // xyz = world center, w = bounding radius incl. soft edge
+			float4 _LPWOccluderRow0[64];   // rows of the world -> box matrix (rotation + translation only)
+			float4 _LPWOccluderRow1[64];
+			float4 _LPWOccluderRow2[64];
+			float4 _LPWOccluderBox[64];    // xyz = half extents, w = soft edge width (world units)
+			float4 _LPWOccluderVisibility[64]; // x = how visible the occluder is to the camera (0 = behind other geometry)
+			float _LPWOccluderCount;
+			float _LPWOccluderEnabled;
+			float3 _LPWViewerPosition;     // main camera (XR center eye), used by the shadow pass
+			float _LPWOccluderShadows;      // 1 = also remove shadows of hidden plant parts
+
+			float3 LPW_ToOccluderSpace( int i, float3 positionWS )
+			{
+				float4 p = float4( positionWS, 1.0 );
+				return float3( dot( _LPWOccluderRow0[i], p ), dot( _LPWOccluderRow1[i], p ), dot( _LPWOccluderRow2[i], p ) );
+			}
+
+			// 0 = visible, 1 = fully hidden.
+			float LPW_OccluderHidden( float3 positionWS, float3 cameraWS )
+			{
+				float3 toPixel = positionWS - cameraWS;
+				float pixelDistance = length( toPixel );
+				float3 viewDir = toPixel / max( pixelDistance, 1e-5 );
+				float hidden = 0.0;
+				int count = _LPWOccluderEnabled > 0.5 ? clamp( (int)_LPWOccluderCount, 0, 64 ) : 0;
+
+				// Note: no return / continue inside this loop. FXC (D3D11) produces invalid bytecode
+				// ("relative index ... uninitialized") for early exits in loops that index arrays.
+				[loop]
+				for ( int i = 0; i < count; i++ )
+				{
+					// Cheap reject: the view ray misses the bounding sphere, or the box lies completely in front of the pixel.
+					float4 sphere = _LPWOccluderSphere[i];
+					float3 toCenter = sphere.xyz - cameraWS;
+					float projected = dot( toCenter, viewDir );
+					float visibility = _LPWOccluderVisibility[i].x;
+					bool candidate = visibility > 0.0 &&
+									 dot( toCenter, toCenter ) - projected * projected <= sphere.w * sphere.w &&
+									 projected + sphere.w >= pixelDistance;
+
+					if ( candidate )
+					{
+						float4 box = _LPWOccluderBox[i];
+						float3 extents = box.xyz;
+						float soft = box.w;
+
+						// Ray in box space: origin = camera, t = 1 at this pixel.
+						float3 origin = LPW_ToOccluderSpace( i, cameraWS );
+						float3 rayDir = LPW_ToOccluderSpace( i, positionWS ) - origin;
+
+						// Exact ray / box test (slab method).
+						float3 safeDir = rayDir + ( abs( rayDir ) < 1e-6 ) * 1e-6;
+						float3 t0 = ( -extents - origin ) / safeDir;
+						float3 t1 = ( extents - origin ) / safeDir;
+						float3 tMin = min( t0, t1 );
+						float3 tMax = max( t0, t1 );
+						float tNear = max( max( tMin.x, tMin.y ), tMin.z );
+						float tFar = min( min( tMax.x, tMax.y ), tMax.z );
+
+						// Closest approach between the ray and the box (alternating projections), for the soft edge.
+						float rayLengthSq = max( dot( rayDir, rayDir ), 1e-8 );
+						float t = dot( -origin, rayDir ) / rayLengthSq;
+						float3 p = origin + rayDir * t;
+						[unroll]
+						for ( int k = 0; k < 2; k++ )
+						{
+							t = dot( clamp( p, -extents, extents ) - origin, rayDir ) / rayLengthSq;
+							p = origin + rayDir * t;
+						}
+						float missDistance = length( p - clamp( p, -extents, extents ) );
+						float softHidden = ( t > 1.0 ) ? 1.0 - smoothstep( 0.0, max( soft, 1e-5 ), missDistance ) : 0.0;
+
+						// Box behind the pixel (or containing it): the plant covers the box -> fully hidden.
+						float hardHidden = ( tNear <= tFar && tFar >= 1.0 ) ? 1.0 : 0.0;
+
+						hidden = max( hidden, max( hardHidden, softHidden * step( 1e-5, soft ) ) * visibility );
+					}
+				}
+
+				return hidden;
+			}
+
+			void LPW_ClipOccluded( float3 positionWS, float2 pixelPosition, float3 cameraWS )
+			{
+				float hidden = LPW_OccluderHidden( positionWS, cameraWS );
+				// Interleaved gradient noise as dither pattern for the soft edge.
+				float noise = frac( 52.9829189 * frac( dot( pixelPosition, float2( 0.06711056, 0.00583715 ) ) ) );
+				clip( noise - hidden );
+			}
+			// --- End Occluder patch ---
 
 			CBUFFER_START(UnityPerMaterial)
 			float4 _NoiseTextureTilling;
@@ -2168,6 +2552,101 @@ Shader "Nicrom/LPW/Low Poly Vegetation Transparent (Level Space)"
 				return _LPWLevelSpaceEnabled > 0.5 ? mul( (float3x3)_LPWLevelLocalToWorld, directionLS ) : directionLS;
 			}
 			// --- End Level Space patch ---
+
+			// --- Occluder patch (see LPWVegetationOccluders.cs) ---
+			// Every occluder (e.g. a Jenga block) is an oriented box. A pixel of a plant is discarded when the
+			// ray from the camera through the pixel hits the box behind (or around) it, i.e. when the plant
+			// covers the box on screen. Near misses dissolve with a dither pattern over a soft edge.
+			float4 _LPWOccluderSphere[64]; // xyz = world center, w = bounding radius incl. soft edge
+			float4 _LPWOccluderRow0[64];   // rows of the world -> box matrix (rotation + translation only)
+			float4 _LPWOccluderRow1[64];
+			float4 _LPWOccluderRow2[64];
+			float4 _LPWOccluderBox[64];    // xyz = half extents, w = soft edge width (world units)
+			float4 _LPWOccluderVisibility[64]; // x = how visible the occluder is to the camera (0 = behind other geometry)
+			float _LPWOccluderCount;
+			float _LPWOccluderEnabled;
+			float3 _LPWViewerPosition;     // main camera (XR center eye), used by the shadow pass
+			float _LPWOccluderShadows;      // 1 = also remove shadows of hidden plant parts
+
+			float3 LPW_ToOccluderSpace( int i, float3 positionWS )
+			{
+				float4 p = float4( positionWS, 1.0 );
+				return float3( dot( _LPWOccluderRow0[i], p ), dot( _LPWOccluderRow1[i], p ), dot( _LPWOccluderRow2[i], p ) );
+			}
+
+			// 0 = visible, 1 = fully hidden.
+			float LPW_OccluderHidden( float3 positionWS, float3 cameraWS )
+			{
+				float3 toPixel = positionWS - cameraWS;
+				float pixelDistance = length( toPixel );
+				float3 viewDir = toPixel / max( pixelDistance, 1e-5 );
+				float hidden = 0.0;
+				int count = _LPWOccluderEnabled > 0.5 ? clamp( (int)_LPWOccluderCount, 0, 64 ) : 0;
+
+				// Note: no return / continue inside this loop. FXC (D3D11) produces invalid bytecode
+				// ("relative index ... uninitialized") for early exits in loops that index arrays.
+				[loop]
+				for ( int i = 0; i < count; i++ )
+				{
+					// Cheap reject: the view ray misses the bounding sphere, or the box lies completely in front of the pixel.
+					float4 sphere = _LPWOccluderSphere[i];
+					float3 toCenter = sphere.xyz - cameraWS;
+					float projected = dot( toCenter, viewDir );
+					float visibility = _LPWOccluderVisibility[i].x;
+					bool candidate = visibility > 0.0 &&
+									 dot( toCenter, toCenter ) - projected * projected <= sphere.w * sphere.w &&
+									 projected + sphere.w >= pixelDistance;
+
+					if ( candidate )
+					{
+						float4 box = _LPWOccluderBox[i];
+						float3 extents = box.xyz;
+						float soft = box.w;
+
+						// Ray in box space: origin = camera, t = 1 at this pixel.
+						float3 origin = LPW_ToOccluderSpace( i, cameraWS );
+						float3 rayDir = LPW_ToOccluderSpace( i, positionWS ) - origin;
+
+						// Exact ray / box test (slab method).
+						float3 safeDir = rayDir + ( abs( rayDir ) < 1e-6 ) * 1e-6;
+						float3 t0 = ( -extents - origin ) / safeDir;
+						float3 t1 = ( extents - origin ) / safeDir;
+						float3 tMin = min( t0, t1 );
+						float3 tMax = max( t0, t1 );
+						float tNear = max( max( tMin.x, tMin.y ), tMin.z );
+						float tFar = min( min( tMax.x, tMax.y ), tMax.z );
+
+						// Closest approach between the ray and the box (alternating projections), for the soft edge.
+						float rayLengthSq = max( dot( rayDir, rayDir ), 1e-8 );
+						float t = dot( -origin, rayDir ) / rayLengthSq;
+						float3 p = origin + rayDir * t;
+						[unroll]
+						for ( int k = 0; k < 2; k++ )
+						{
+							t = dot( clamp( p, -extents, extents ) - origin, rayDir ) / rayLengthSq;
+							p = origin + rayDir * t;
+						}
+						float missDistance = length( p - clamp( p, -extents, extents ) );
+						float softHidden = ( t > 1.0 ) ? 1.0 - smoothstep( 0.0, max( soft, 1e-5 ), missDistance ) : 0.0;
+
+						// Box behind the pixel (or containing it): the plant covers the box -> fully hidden.
+						float hardHidden = ( tNear <= tFar && tFar >= 1.0 ) ? 1.0 : 0.0;
+
+						hidden = max( hidden, max( hardHidden, softHidden * step( 1e-5, soft ) ) * visibility );
+					}
+				}
+
+				return hidden;
+			}
+
+			void LPW_ClipOccluded( float3 positionWS, float2 pixelPosition, float3 cameraWS )
+			{
+				float hidden = LPW_OccluderHidden( positionWS, cameraWS );
+				// Interleaved gradient noise as dither pattern for the soft edge.
+				float noise = frac( 52.9829189 * frac( dot( pixelPosition, float2( 0.06711056, 0.00583715 ) ) ) );
+				clip( noise - hidden );
+			}
+			// --- End Occluder patch ---
 
 			CBUFFER_START(UnityPerMaterial)
 			float4 _NoiseTextureTilling;
@@ -2539,6 +3018,101 @@ Shader "Nicrom/LPW/Low Poly Vegetation Transparent (Level Space)"
 			}
 			// --- End Level Space patch ---
 
+			// --- Occluder patch (see LPWVegetationOccluders.cs) ---
+			// Every occluder (e.g. a Jenga block) is an oriented box. A pixel of a plant is discarded when the
+			// ray from the camera through the pixel hits the box behind (or around) it, i.e. when the plant
+			// covers the box on screen. Near misses dissolve with a dither pattern over a soft edge.
+			float4 _LPWOccluderSphere[64]; // xyz = world center, w = bounding radius incl. soft edge
+			float4 _LPWOccluderRow0[64];   // rows of the world -> box matrix (rotation + translation only)
+			float4 _LPWOccluderRow1[64];
+			float4 _LPWOccluderRow2[64];
+			float4 _LPWOccluderBox[64];    // xyz = half extents, w = soft edge width (world units)
+			float4 _LPWOccluderVisibility[64]; // x = how visible the occluder is to the camera (0 = behind other geometry)
+			float _LPWOccluderCount;
+			float _LPWOccluderEnabled;
+			float3 _LPWViewerPosition;     // main camera (XR center eye), used by the shadow pass
+			float _LPWOccluderShadows;      // 1 = also remove shadows of hidden plant parts
+
+			float3 LPW_ToOccluderSpace( int i, float3 positionWS )
+			{
+				float4 p = float4( positionWS, 1.0 );
+				return float3( dot( _LPWOccluderRow0[i], p ), dot( _LPWOccluderRow1[i], p ), dot( _LPWOccluderRow2[i], p ) );
+			}
+
+			// 0 = visible, 1 = fully hidden.
+			float LPW_OccluderHidden( float3 positionWS, float3 cameraWS )
+			{
+				float3 toPixel = positionWS - cameraWS;
+				float pixelDistance = length( toPixel );
+				float3 viewDir = toPixel / max( pixelDistance, 1e-5 );
+				float hidden = 0.0;
+				int count = _LPWOccluderEnabled > 0.5 ? clamp( (int)_LPWOccluderCount, 0, 64 ) : 0;
+
+				// Note: no return / continue inside this loop. FXC (D3D11) produces invalid bytecode
+				// ("relative index ... uninitialized") for early exits in loops that index arrays.
+				[loop]
+				for ( int i = 0; i < count; i++ )
+				{
+					// Cheap reject: the view ray misses the bounding sphere, or the box lies completely in front of the pixel.
+					float4 sphere = _LPWOccluderSphere[i];
+					float3 toCenter = sphere.xyz - cameraWS;
+					float projected = dot( toCenter, viewDir );
+					float visibility = _LPWOccluderVisibility[i].x;
+					bool candidate = visibility > 0.0 &&
+									 dot( toCenter, toCenter ) - projected * projected <= sphere.w * sphere.w &&
+									 projected + sphere.w >= pixelDistance;
+
+					if ( candidate )
+					{
+						float4 box = _LPWOccluderBox[i];
+						float3 extents = box.xyz;
+						float soft = box.w;
+
+						// Ray in box space: origin = camera, t = 1 at this pixel.
+						float3 origin = LPW_ToOccluderSpace( i, cameraWS );
+						float3 rayDir = LPW_ToOccluderSpace( i, positionWS ) - origin;
+
+						// Exact ray / box test (slab method).
+						float3 safeDir = rayDir + ( abs( rayDir ) < 1e-6 ) * 1e-6;
+						float3 t0 = ( -extents - origin ) / safeDir;
+						float3 t1 = ( extents - origin ) / safeDir;
+						float3 tMin = min( t0, t1 );
+						float3 tMax = max( t0, t1 );
+						float tNear = max( max( tMin.x, tMin.y ), tMin.z );
+						float tFar = min( min( tMax.x, tMax.y ), tMax.z );
+
+						// Closest approach between the ray and the box (alternating projections), for the soft edge.
+						float rayLengthSq = max( dot( rayDir, rayDir ), 1e-8 );
+						float t = dot( -origin, rayDir ) / rayLengthSq;
+						float3 p = origin + rayDir * t;
+						[unroll]
+						for ( int k = 0; k < 2; k++ )
+						{
+							t = dot( clamp( p, -extents, extents ) - origin, rayDir ) / rayLengthSq;
+							p = origin + rayDir * t;
+						}
+						float missDistance = length( p - clamp( p, -extents, extents ) );
+						float softHidden = ( t > 1.0 ) ? 1.0 - smoothstep( 0.0, max( soft, 1e-5 ), missDistance ) : 0.0;
+
+						// Box behind the pixel (or containing it): the plant covers the box -> fully hidden.
+						float hardHidden = ( tNear <= tFar && tFar >= 1.0 ) ? 1.0 : 0.0;
+
+						hidden = max( hidden, max( hardHidden, softHidden * step( 1e-5, soft ) ) * visibility );
+					}
+				}
+
+				return hidden;
+			}
+
+			void LPW_ClipOccluded( float3 positionWS, float2 pixelPosition, float3 cameraWS )
+			{
+				float hidden = LPW_OccluderHidden( positionWS, cameraWS );
+				// Interleaved gradient noise as dither pattern for the soft edge.
+				float noise = frac( 52.9829189 * frac( dot( pixelPosition, float2( 0.06711056, 0.00583715 ) ) ) );
+				clip( noise - hidden );
+			}
+			// --- End Occluder patch ---
+
 			CBUFFER_START(UnityPerMaterial)
 			float4 _NoiseTextureTilling;
 			float4 _Color;
@@ -2794,6 +3368,7 @@ Shader "Nicrom/LPW/Low Poly Vegetation Transparent (Level Space)"
 				float3 PositionRWS = GetCameraRelativePositionWS( input.positionWS );
 				float4 ShadowCoord = shadowCoord;
 				float4 ScreenPosNorm = float4( GetNormalizedScreenSpaceUV( input.positionCS ), input.positionCS.zw );
+				LPW_ClipOccluded( input.positionWS, input.positionCS.xy, GetCameraPositionWS() );
 				float4 ClipPos = ComputeClipSpacePosition( ScreenPosNorm.xy, input.positionCS.z ) * input.positionCS.w;
 				float4 ScreenPos = ComputeScreenPos( ClipPos );
 				float3 TangentWS = input.tangentWS.xyz * renormFactor;
@@ -3022,6 +3597,101 @@ Shader "Nicrom/LPW/Low Poly Vegetation Transparent (Level Space)"
 				return _LPWLevelSpaceEnabled > 0.5 ? mul( (float3x3)_LPWLevelLocalToWorld, directionLS ) : directionLS;
 			}
 			// --- End Level Space patch ---
+
+			// --- Occluder patch (see LPWVegetationOccluders.cs) ---
+			// Every occluder (e.g. a Jenga block) is an oriented box. A pixel of a plant is discarded when the
+			// ray from the camera through the pixel hits the box behind (or around) it, i.e. when the plant
+			// covers the box on screen. Near misses dissolve with a dither pattern over a soft edge.
+			float4 _LPWOccluderSphere[64]; // xyz = world center, w = bounding radius incl. soft edge
+			float4 _LPWOccluderRow0[64];   // rows of the world -> box matrix (rotation + translation only)
+			float4 _LPWOccluderRow1[64];
+			float4 _LPWOccluderRow2[64];
+			float4 _LPWOccluderBox[64];    // xyz = half extents, w = soft edge width (world units)
+			float4 _LPWOccluderVisibility[64]; // x = how visible the occluder is to the camera (0 = behind other geometry)
+			float _LPWOccluderCount;
+			float _LPWOccluderEnabled;
+			float3 _LPWViewerPosition;     // main camera (XR center eye), used by the shadow pass
+			float _LPWOccluderShadows;      // 1 = also remove shadows of hidden plant parts
+
+			float3 LPW_ToOccluderSpace( int i, float3 positionWS )
+			{
+				float4 p = float4( positionWS, 1.0 );
+				return float3( dot( _LPWOccluderRow0[i], p ), dot( _LPWOccluderRow1[i], p ), dot( _LPWOccluderRow2[i], p ) );
+			}
+
+			// 0 = visible, 1 = fully hidden.
+			float LPW_OccluderHidden( float3 positionWS, float3 cameraWS )
+			{
+				float3 toPixel = positionWS - cameraWS;
+				float pixelDistance = length( toPixel );
+				float3 viewDir = toPixel / max( pixelDistance, 1e-5 );
+				float hidden = 0.0;
+				int count = _LPWOccluderEnabled > 0.5 ? clamp( (int)_LPWOccluderCount, 0, 64 ) : 0;
+
+				// Note: no return / continue inside this loop. FXC (D3D11) produces invalid bytecode
+				// ("relative index ... uninitialized") for early exits in loops that index arrays.
+				[loop]
+				for ( int i = 0; i < count; i++ )
+				{
+					// Cheap reject: the view ray misses the bounding sphere, or the box lies completely in front of the pixel.
+					float4 sphere = _LPWOccluderSphere[i];
+					float3 toCenter = sphere.xyz - cameraWS;
+					float projected = dot( toCenter, viewDir );
+					float visibility = _LPWOccluderVisibility[i].x;
+					bool candidate = visibility > 0.0 &&
+									 dot( toCenter, toCenter ) - projected * projected <= sphere.w * sphere.w &&
+									 projected + sphere.w >= pixelDistance;
+
+					if ( candidate )
+					{
+						float4 box = _LPWOccluderBox[i];
+						float3 extents = box.xyz;
+						float soft = box.w;
+
+						// Ray in box space: origin = camera, t = 1 at this pixel.
+						float3 origin = LPW_ToOccluderSpace( i, cameraWS );
+						float3 rayDir = LPW_ToOccluderSpace( i, positionWS ) - origin;
+
+						// Exact ray / box test (slab method).
+						float3 safeDir = rayDir + ( abs( rayDir ) < 1e-6 ) * 1e-6;
+						float3 t0 = ( -extents - origin ) / safeDir;
+						float3 t1 = ( extents - origin ) / safeDir;
+						float3 tMin = min( t0, t1 );
+						float3 tMax = max( t0, t1 );
+						float tNear = max( max( tMin.x, tMin.y ), tMin.z );
+						float tFar = min( min( tMax.x, tMax.y ), tMax.z );
+
+						// Closest approach between the ray and the box (alternating projections), for the soft edge.
+						float rayLengthSq = max( dot( rayDir, rayDir ), 1e-8 );
+						float t = dot( -origin, rayDir ) / rayLengthSq;
+						float3 p = origin + rayDir * t;
+						[unroll]
+						for ( int k = 0; k < 2; k++ )
+						{
+							t = dot( clamp( p, -extents, extents ) - origin, rayDir ) / rayLengthSq;
+							p = origin + rayDir * t;
+						}
+						float missDistance = length( p - clamp( p, -extents, extents ) );
+						float softHidden = ( t > 1.0 ) ? 1.0 - smoothstep( 0.0, max( soft, 1e-5 ), missDistance ) : 0.0;
+
+						// Box behind the pixel (or containing it): the plant covers the box -> fully hidden.
+						float hardHidden = ( tNear <= tFar && tFar >= 1.0 ) ? 1.0 : 0.0;
+
+						hidden = max( hidden, max( hardHidden, softHidden * step( 1e-5, soft ) ) * visibility );
+					}
+				}
+
+				return hidden;
+			}
+
+			void LPW_ClipOccluded( float3 positionWS, float2 pixelPosition, float3 cameraWS )
+			{
+				float hidden = LPW_OccluderHidden( positionWS, cameraWS );
+				// Interleaved gradient noise as dither pattern for the soft edge.
+				float noise = frac( 52.9829189 * frac( dot( pixelPosition, float2( 0.06711056, 0.00583715 ) ) ) );
+				clip( noise - hidden );
+			}
+			// --- End Occluder patch ---
 
 			CBUFFER_START(UnityPerMaterial)
 			float4 _NoiseTextureTilling;
@@ -3316,6 +3986,7 @@ Shader "Nicrom/LPW/Low Poly Vegetation Transparent (Level Space)"
 				float3 ViewDirWS = GetWorldSpaceNormalizeViewDir( PositionWS );
 				float4 ShadowCoord = shadowCoord;
 				float4 ScreenPosNorm = float4( GetNormalizedScreenSpaceUV( input.positionCS ), input.positionCS.zw );
+				LPW_ClipOccluded( input.positionWS, input.positionCS.xy, GetCameraPositionWS() );
 				float4 ClipPos = ComputeClipSpacePosition( ScreenPosNorm.xy, input.positionCS.z ) * input.positionCS.w;
 				float4 ScreenPos = ComputeScreenPos( ClipPos );
 				float3 TangentWS = input.tangentWS.xyz * renormFactor;
@@ -3570,6 +4241,101 @@ Shader "Nicrom/LPW/Low Poly Vegetation Transparent (Level Space)"
 				return _LPWLevelSpaceEnabled > 0.5 ? mul( (float3x3)_LPWLevelLocalToWorld, directionLS ) : directionLS;
 			}
 			// --- End Level Space patch ---
+
+			// --- Occluder patch (see LPWVegetationOccluders.cs) ---
+			// Every occluder (e.g. a Jenga block) is an oriented box. A pixel of a plant is discarded when the
+			// ray from the camera through the pixel hits the box behind (or around) it, i.e. when the plant
+			// covers the box on screen. Near misses dissolve with a dither pattern over a soft edge.
+			float4 _LPWOccluderSphere[64]; // xyz = world center, w = bounding radius incl. soft edge
+			float4 _LPWOccluderRow0[64];   // rows of the world -> box matrix (rotation + translation only)
+			float4 _LPWOccluderRow1[64];
+			float4 _LPWOccluderRow2[64];
+			float4 _LPWOccluderBox[64];    // xyz = half extents, w = soft edge width (world units)
+			float4 _LPWOccluderVisibility[64]; // x = how visible the occluder is to the camera (0 = behind other geometry)
+			float _LPWOccluderCount;
+			float _LPWOccluderEnabled;
+			float3 _LPWViewerPosition;     // main camera (XR center eye), used by the shadow pass
+			float _LPWOccluderShadows;      // 1 = also remove shadows of hidden plant parts
+
+			float3 LPW_ToOccluderSpace( int i, float3 positionWS )
+			{
+				float4 p = float4( positionWS, 1.0 );
+				return float3( dot( _LPWOccluderRow0[i], p ), dot( _LPWOccluderRow1[i], p ), dot( _LPWOccluderRow2[i], p ) );
+			}
+
+			// 0 = visible, 1 = fully hidden.
+			float LPW_OccluderHidden( float3 positionWS, float3 cameraWS )
+			{
+				float3 toPixel = positionWS - cameraWS;
+				float pixelDistance = length( toPixel );
+				float3 viewDir = toPixel / max( pixelDistance, 1e-5 );
+				float hidden = 0.0;
+				int count = _LPWOccluderEnabled > 0.5 ? clamp( (int)_LPWOccluderCount, 0, 64 ) : 0;
+
+				// Note: no return / continue inside this loop. FXC (D3D11) produces invalid bytecode
+				// ("relative index ... uninitialized") for early exits in loops that index arrays.
+				[loop]
+				for ( int i = 0; i < count; i++ )
+				{
+					// Cheap reject: the view ray misses the bounding sphere, or the box lies completely in front of the pixel.
+					float4 sphere = _LPWOccluderSphere[i];
+					float3 toCenter = sphere.xyz - cameraWS;
+					float projected = dot( toCenter, viewDir );
+					float visibility = _LPWOccluderVisibility[i].x;
+					bool candidate = visibility > 0.0 &&
+									 dot( toCenter, toCenter ) - projected * projected <= sphere.w * sphere.w &&
+									 projected + sphere.w >= pixelDistance;
+
+					if ( candidate )
+					{
+						float4 box = _LPWOccluderBox[i];
+						float3 extents = box.xyz;
+						float soft = box.w;
+
+						// Ray in box space: origin = camera, t = 1 at this pixel.
+						float3 origin = LPW_ToOccluderSpace( i, cameraWS );
+						float3 rayDir = LPW_ToOccluderSpace( i, positionWS ) - origin;
+
+						// Exact ray / box test (slab method).
+						float3 safeDir = rayDir + ( abs( rayDir ) < 1e-6 ) * 1e-6;
+						float3 t0 = ( -extents - origin ) / safeDir;
+						float3 t1 = ( extents - origin ) / safeDir;
+						float3 tMin = min( t0, t1 );
+						float3 tMax = max( t0, t1 );
+						float tNear = max( max( tMin.x, tMin.y ), tMin.z );
+						float tFar = min( min( tMax.x, tMax.y ), tMax.z );
+
+						// Closest approach between the ray and the box (alternating projections), for the soft edge.
+						float rayLengthSq = max( dot( rayDir, rayDir ), 1e-8 );
+						float t = dot( -origin, rayDir ) / rayLengthSq;
+						float3 p = origin + rayDir * t;
+						[unroll]
+						for ( int k = 0; k < 2; k++ )
+						{
+							t = dot( clamp( p, -extents, extents ) - origin, rayDir ) / rayLengthSq;
+							p = origin + rayDir * t;
+						}
+						float missDistance = length( p - clamp( p, -extents, extents ) );
+						float softHidden = ( t > 1.0 ) ? 1.0 - smoothstep( 0.0, max( soft, 1e-5 ), missDistance ) : 0.0;
+
+						// Box behind the pixel (or containing it): the plant covers the box -> fully hidden.
+						float hardHidden = ( tNear <= tFar && tFar >= 1.0 ) ? 1.0 : 0.0;
+
+						hidden = max( hidden, max( hardHidden, softHidden * step( 1e-5, soft ) ) * visibility );
+					}
+				}
+
+				return hidden;
+			}
+
+			void LPW_ClipOccluded( float3 positionWS, float2 pixelPosition, float3 cameraWS )
+			{
+				float hidden = LPW_OccluderHidden( positionWS, cameraWS );
+				// Interleaved gradient noise as dither pattern for the soft edge.
+				float noise = frac( 52.9829189 * frac( dot( pixelPosition, float2( 0.06711056, 0.00583715 ) ) ) );
+				clip( noise - hidden );
+			}
+			// --- End Occluder patch ---
 
 			CBUFFER_START(UnityPerMaterial)
 			float4 _NoiseTextureTilling;
@@ -3937,6 +4703,101 @@ Shader "Nicrom/LPW/Low Poly Vegetation Transparent (Level Space)"
 				return _LPWLevelSpaceEnabled > 0.5 ? mul( (float3x3)_LPWLevelLocalToWorld, directionLS ) : directionLS;
 			}
 			// --- End Level Space patch ---
+
+			// --- Occluder patch (see LPWVegetationOccluders.cs) ---
+			// Every occluder (e.g. a Jenga block) is an oriented box. A pixel of a plant is discarded when the
+			// ray from the camera through the pixel hits the box behind (or around) it, i.e. when the plant
+			// covers the box on screen. Near misses dissolve with a dither pattern over a soft edge.
+			float4 _LPWOccluderSphere[64]; // xyz = world center, w = bounding radius incl. soft edge
+			float4 _LPWOccluderRow0[64];   // rows of the world -> box matrix (rotation + translation only)
+			float4 _LPWOccluderRow1[64];
+			float4 _LPWOccluderRow2[64];
+			float4 _LPWOccluderBox[64];    // xyz = half extents, w = soft edge width (world units)
+			float4 _LPWOccluderVisibility[64]; // x = how visible the occluder is to the camera (0 = behind other geometry)
+			float _LPWOccluderCount;
+			float _LPWOccluderEnabled;
+			float3 _LPWViewerPosition;     // main camera (XR center eye), used by the shadow pass
+			float _LPWOccluderShadows;      // 1 = also remove shadows of hidden plant parts
+
+			float3 LPW_ToOccluderSpace( int i, float3 positionWS )
+			{
+				float4 p = float4( positionWS, 1.0 );
+				return float3( dot( _LPWOccluderRow0[i], p ), dot( _LPWOccluderRow1[i], p ), dot( _LPWOccluderRow2[i], p ) );
+			}
+
+			// 0 = visible, 1 = fully hidden.
+			float LPW_OccluderHidden( float3 positionWS, float3 cameraWS )
+			{
+				float3 toPixel = positionWS - cameraWS;
+				float pixelDistance = length( toPixel );
+				float3 viewDir = toPixel / max( pixelDistance, 1e-5 );
+				float hidden = 0.0;
+				int count = _LPWOccluderEnabled > 0.5 ? clamp( (int)_LPWOccluderCount, 0, 64 ) : 0;
+
+				// Note: no return / continue inside this loop. FXC (D3D11) produces invalid bytecode
+				// ("relative index ... uninitialized") for early exits in loops that index arrays.
+				[loop]
+				for ( int i = 0; i < count; i++ )
+				{
+					// Cheap reject: the view ray misses the bounding sphere, or the box lies completely in front of the pixel.
+					float4 sphere = _LPWOccluderSphere[i];
+					float3 toCenter = sphere.xyz - cameraWS;
+					float projected = dot( toCenter, viewDir );
+					float visibility = _LPWOccluderVisibility[i].x;
+					bool candidate = visibility > 0.0 &&
+									 dot( toCenter, toCenter ) - projected * projected <= sphere.w * sphere.w &&
+									 projected + sphere.w >= pixelDistance;
+
+					if ( candidate )
+					{
+						float4 box = _LPWOccluderBox[i];
+						float3 extents = box.xyz;
+						float soft = box.w;
+
+						// Ray in box space: origin = camera, t = 1 at this pixel.
+						float3 origin = LPW_ToOccluderSpace( i, cameraWS );
+						float3 rayDir = LPW_ToOccluderSpace( i, positionWS ) - origin;
+
+						// Exact ray / box test (slab method).
+						float3 safeDir = rayDir + ( abs( rayDir ) < 1e-6 ) * 1e-6;
+						float3 t0 = ( -extents - origin ) / safeDir;
+						float3 t1 = ( extents - origin ) / safeDir;
+						float3 tMin = min( t0, t1 );
+						float3 tMax = max( t0, t1 );
+						float tNear = max( max( tMin.x, tMin.y ), tMin.z );
+						float tFar = min( min( tMax.x, tMax.y ), tMax.z );
+
+						// Closest approach between the ray and the box (alternating projections), for the soft edge.
+						float rayLengthSq = max( dot( rayDir, rayDir ), 1e-8 );
+						float t = dot( -origin, rayDir ) / rayLengthSq;
+						float3 p = origin + rayDir * t;
+						[unroll]
+						for ( int k = 0; k < 2; k++ )
+						{
+							t = dot( clamp( p, -extents, extents ) - origin, rayDir ) / rayLengthSq;
+							p = origin + rayDir * t;
+						}
+						float missDistance = length( p - clamp( p, -extents, extents ) );
+						float softHidden = ( t > 1.0 ) ? 1.0 - smoothstep( 0.0, max( soft, 1e-5 ), missDistance ) : 0.0;
+
+						// Box behind the pixel (or containing it): the plant covers the box -> fully hidden.
+						float hardHidden = ( tNear <= tFar && tFar >= 1.0 ) ? 1.0 : 0.0;
+
+						hidden = max( hidden, max( hardHidden, softHidden * step( 1e-5, soft ) ) * visibility );
+					}
+				}
+
+				return hidden;
+			}
+
+			void LPW_ClipOccluded( float3 positionWS, float2 pixelPosition, float3 cameraWS )
+			{
+				float hidden = LPW_OccluderHidden( positionWS, cameraWS );
+				// Interleaved gradient noise as dither pattern for the soft edge.
+				float noise = frac( 52.9829189 * frac( dot( pixelPosition, float2( 0.06711056, 0.00583715 ) ) ) );
+				clip( noise - hidden );
+			}
+			// --- End Occluder patch ---
 
 			CBUFFER_START(UnityPerMaterial)
 			float4 _NoiseTextureTilling;
@@ -4314,6 +5175,101 @@ Shader "Nicrom/LPW/Low Poly Vegetation Transparent (Level Space)"
 			}
 			// --- End Level Space patch ---
 
+			// --- Occluder patch (see LPWVegetationOccluders.cs) ---
+			// Every occluder (e.g. a Jenga block) is an oriented box. A pixel of a plant is discarded when the
+			// ray from the camera through the pixel hits the box behind (or around) it, i.e. when the plant
+			// covers the box on screen. Near misses dissolve with a dither pattern over a soft edge.
+			float4 _LPWOccluderSphere[64]; // xyz = world center, w = bounding radius incl. soft edge
+			float4 _LPWOccluderRow0[64];   // rows of the world -> box matrix (rotation + translation only)
+			float4 _LPWOccluderRow1[64];
+			float4 _LPWOccluderRow2[64];
+			float4 _LPWOccluderBox[64];    // xyz = half extents, w = soft edge width (world units)
+			float4 _LPWOccluderVisibility[64]; // x = how visible the occluder is to the camera (0 = behind other geometry)
+			float _LPWOccluderCount;
+			float _LPWOccluderEnabled;
+			float3 _LPWViewerPosition;     // main camera (XR center eye), used by the shadow pass
+			float _LPWOccluderShadows;      // 1 = also remove shadows of hidden plant parts
+
+			float3 LPW_ToOccluderSpace( int i, float3 positionWS )
+			{
+				float4 p = float4( positionWS, 1.0 );
+				return float3( dot( _LPWOccluderRow0[i], p ), dot( _LPWOccluderRow1[i], p ), dot( _LPWOccluderRow2[i], p ) );
+			}
+
+			// 0 = visible, 1 = fully hidden.
+			float LPW_OccluderHidden( float3 positionWS, float3 cameraWS )
+			{
+				float3 toPixel = positionWS - cameraWS;
+				float pixelDistance = length( toPixel );
+				float3 viewDir = toPixel / max( pixelDistance, 1e-5 );
+				float hidden = 0.0;
+				int count = _LPWOccluderEnabled > 0.5 ? clamp( (int)_LPWOccluderCount, 0, 64 ) : 0;
+
+				// Note: no return / continue inside this loop. FXC (D3D11) produces invalid bytecode
+				// ("relative index ... uninitialized") for early exits in loops that index arrays.
+				[loop]
+				for ( int i = 0; i < count; i++ )
+				{
+					// Cheap reject: the view ray misses the bounding sphere, or the box lies completely in front of the pixel.
+					float4 sphere = _LPWOccluderSphere[i];
+					float3 toCenter = sphere.xyz - cameraWS;
+					float projected = dot( toCenter, viewDir );
+					float visibility = _LPWOccluderVisibility[i].x;
+					bool candidate = visibility > 0.0 &&
+									 dot( toCenter, toCenter ) - projected * projected <= sphere.w * sphere.w &&
+									 projected + sphere.w >= pixelDistance;
+
+					if ( candidate )
+					{
+						float4 box = _LPWOccluderBox[i];
+						float3 extents = box.xyz;
+						float soft = box.w;
+
+						// Ray in box space: origin = camera, t = 1 at this pixel.
+						float3 origin = LPW_ToOccluderSpace( i, cameraWS );
+						float3 rayDir = LPW_ToOccluderSpace( i, positionWS ) - origin;
+
+						// Exact ray / box test (slab method).
+						float3 safeDir = rayDir + ( abs( rayDir ) < 1e-6 ) * 1e-6;
+						float3 t0 = ( -extents - origin ) / safeDir;
+						float3 t1 = ( extents - origin ) / safeDir;
+						float3 tMin = min( t0, t1 );
+						float3 tMax = max( t0, t1 );
+						float tNear = max( max( tMin.x, tMin.y ), tMin.z );
+						float tFar = min( min( tMax.x, tMax.y ), tMax.z );
+
+						// Closest approach between the ray and the box (alternating projections), for the soft edge.
+						float rayLengthSq = max( dot( rayDir, rayDir ), 1e-8 );
+						float t = dot( -origin, rayDir ) / rayLengthSq;
+						float3 p = origin + rayDir * t;
+						[unroll]
+						for ( int k = 0; k < 2; k++ )
+						{
+							t = dot( clamp( p, -extents, extents ) - origin, rayDir ) / rayLengthSq;
+							p = origin + rayDir * t;
+						}
+						float missDistance = length( p - clamp( p, -extents, extents ) );
+						float softHidden = ( t > 1.0 ) ? 1.0 - smoothstep( 0.0, max( soft, 1e-5 ), missDistance ) : 0.0;
+
+						// Box behind the pixel (or containing it): the plant covers the box -> fully hidden.
+						float hardHidden = ( tNear <= tFar && tFar >= 1.0 ) ? 1.0 : 0.0;
+
+						hidden = max( hidden, max( hardHidden, softHidden * step( 1e-5, soft ) ) * visibility );
+					}
+				}
+
+				return hidden;
+			}
+
+			void LPW_ClipOccluded( float3 positionWS, float2 pixelPosition, float3 cameraWS )
+			{
+				float hidden = LPW_OccluderHidden( positionWS, cameraWS );
+				// Interleaved gradient noise as dither pattern for the soft edge.
+				float noise = frac( 52.9829189 * frac( dot( pixelPosition, float2( 0.06711056, 0.00583715 ) ) ) );
+				clip( noise - hidden );
+			}
+			// --- End Occluder patch ---
+
 			CBUFFER_START(UnityPerMaterial)
 			float4 _NoiseTextureTilling;
 			float4 _Color;
@@ -4483,6 +5439,7 @@ Shader "Nicrom/LPW/Low Poly Vegetation Transparent (Level Space)"
 				float3 PositionWS = input.positionWS;
 				float3 PositionRWS = GetCameraRelativePositionWS( PositionWS );
 				float4 ScreenPosNorm = float4( GetNormalizedScreenSpaceUV( input.positionCS ), input.positionCS.zw );
+				LPW_ClipOccluded( input.positionWS, input.positionCS.xy, GetCameraPositionWS() );
 				float4 ClipPos = ComputeClipSpacePosition( ScreenPosNorm.xy, input.positionCS.z ) * input.positionCS.w;
 
 				float2 uv_MainTex1_g1 = input.ase_texcoord3.xy;

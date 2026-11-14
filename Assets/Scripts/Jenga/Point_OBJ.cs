@@ -12,15 +12,25 @@ public class Point_OBJ : MonoBehaviour
 
     private void OnCollisionEnter(Collision collision)
     {
-        // Several contacts can arrive in the same physics step; score only once.
-        if (scored || !collision.gameObject.CompareTag("Fallen"))
-            return;
+        if (collision.gameObject.CompareTag("Fallen"))
+            TryScore();
+    }
+
+    /// <summary>
+    /// Adds the points, plays the effect and destroys the block.
+    /// Returns false if the block has already scored (several contacts can arrive in the same physics step).
+    /// </summary>
+    public bool TryScore()
+    {
+        if (scored)
+            return false;
 
         scored = true;
         GameManager.Instance.AddPoints(points);
         PlayEffect();
         gameObject.SetActive(false);
         Destroy(gameObject);
+        return true;
     }
 
     private void PlayEffect()
