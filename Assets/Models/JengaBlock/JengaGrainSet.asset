@@ -1,0 +1,31 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 81c8d20f63944dc1b1a5e2b6a474618c, type: 3}
+  m_Name: JengaGrainSet
+  m_EditorClassIdentifier: Assembly-CSharp::JengaGrainSet
+  variants:
+  - side: {fileID: 2800000, guid: e66bd3c31625c29418b85535dd53aea4, type: 3}
+    end: {fileID: 2800000, guid: a26b212c070a1a840832454e05f54a91, type: 3}
+  - side: {fileID: 2800000, guid: e49a66ff65440ad4887d7b824741d91a, type: 3}
+    end: {fileID: 2800000, guid: eb4b65afd0d32ff418f506618482d3a2, type: 3}
+  - side: {fileID: 2800000, guid: 06a1e1a726e46354e87974e152846df1, type: 3}
+    end: {fileID: 2800000, guid: b20333329b661a641bd7b74facef2ef7, type: 3}
+  - side: {fileID: 2800000, guid: 1b8207d82a7adf445a8fc0917584b5e3, type: 3}
+    end: {fileID: 2800000, guid: f8e31e6352430454cb0ce5af3eacafe3, type: 3}
+  - side: {fileID: 2800000, guid: cdf0b12f512c7c045967ae5fb86f6b4f, type: 3}
+    end: {fileID: 2800000, guid: 0faf486b749298247be7be467824032b, type: 3}
+  - side: {fileID: 2800000, guid: dcd2db29b1e491e4facd5c721a5550b7, type: 3}
+    end: {fileID: 2800000, guid: eeda4155b65251e4ebb8efb93f87d7c4, type: 3}
+  - side: {fileID: 2800000, guid: ec88c86203417374c9c34c10da1ee756, type: 3}
+    end: {fileID: 2800000, guid: e95e54ca151f60e4b9dcfbb3a30d757f, type: 3}
+  - side: {fileID: 2800000, guid: 8d213d07bf580014caf2da4be4d58ed3, type: 3}
+    end: {fileID: 2800000, guid: d5464b7dcc447cb42bcae2c2fba9790f, type: 3}
