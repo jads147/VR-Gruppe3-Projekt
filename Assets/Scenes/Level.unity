@@ -139244,7 +139244,7 @@ MeshCollider:
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 5
-  m_Convex: 1
+  m_Convex: 0
   m_CookingOptions: 30
   m_Mesh: {fileID: -6564086670116265437, guid: b2bef9b9311c9ed4e8fcc904a556bb42, type: 3}
 --- !u!65 &909593343760113061
@@ -144550,7 +144550,7 @@ GameObject:
   - component: {fileID: 458611864761912223}
   - component: {fileID: 843364056526868229}
   - component: {fileID: 8398406048357408147}
-  m_Layer: 3
+  m_Layer: 4
   m_Name: Water
   m_TagString: Fallen
   m_Icon: {fileID: 0}
