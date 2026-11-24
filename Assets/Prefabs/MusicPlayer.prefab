@@ -142,12 +142,34 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: da03cfe0af337f446a701a8a9814ed27, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::AmbientAudioSource
-  clip: {fileID: 8300000, guid: e8f610a0c3ac7c84eb431c6dade8e783, type: 3}
+  tracks:
+  - clip: {fileID: 8300000, guid: e8f610a0c3ac7c84eb431c6dade8e783, type: 3}
+    volume: 1
+    loopCount: 2
+    fadeIn: 2
+    fadeOut: 2
+    randomStartTime: 0
+  - clip: {fileID: 8300000, guid: 5884c67468f31244b87b1f1c883c7033, type: 3}
+    volume: 1
+    loopCount: 0
+    fadeIn: 2
+    fadeOut: 2
+    randomStartTime: 0
+  - clip: {fileID: 8300000, guid: 282fb4a63d80a2c4c8e0cd10130bd73a, type: 3}
+    volume: 1
+    loopCount: 0
+    fadeIn: 2
+    fadeOut: 2
+    randomStartTime: 0
   volume: 0.8
   playOnStart: 1
-  randomStartTime: 1
-  fadeInDuration: 2
+  shuffle: 1
+  repeatPlaylist: 1
+  crossfade: 1
   spatialBlend: 0
   minDistance: 2
   maxDistance: 25
   rolloffMode: 1
+  clip: {fileID: 0}
+  randomStartTime: 1
+  fadeInDuration: 2

@@ -29,6 +29,12 @@ public class TutorialSpawner : MonoBehaviour
         }
     }
 
+    /// <summary>Erlaubt wieder Spawns (z.B. nachdem eine Runde eingetragen wurde).</summary>
+    public void Unlock()
+    {
+        IsLocked = false;
+    }
+
     public void Spawn()
     {
         if (IsLocked)

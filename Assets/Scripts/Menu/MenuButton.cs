@@ -18,6 +18,13 @@ public class MenuButton : PressableButton
     [Tooltip("Mindestzeit zwischen zwei Toggles, damit ein zitternder Ray das Menü nicht flackern lässt.")]
     [SerializeField] float toggleCooldown = 0.5f;
 
+    [Tooltip("Sind Overlays offen (Bestenliste, Namenseingabe), schließt der Button zuerst diese. " +
+             "Erst wenn keins mehr offen ist, wird das Menü getoggelt.")]
+    [SerializeField] bool closeOverlaysFirst = true;
+
+    [Tooltip("Menü ausblenden, sobald ein Overlay (Bestenliste, Namenseingabe) geöffnet wird.")]
+    [SerializeField] bool hideMenuWhenOverlayOpens = true;
+
     float m_LastToggleTime = float.NegativeInfinity;
 
     protected override void Awake()
@@ -32,15 +39,49 @@ public class MenuButton : PressableButton
             menu.SetActive(menuVisibleOnStart);
     }
 
+    protected override void OnEnable()
+    {
+        base.OnEnable();
+        MenuOverlays.Opened += HandleOverlayOpened;
+    }
+
+    protected override void OnDisable()
+    {
+        base.OnDisable();
+        MenuOverlays.Opened -= HandleOverlayOpened;
+    }
+
+    void HandleOverlayOpened(GameObject shownObject)
+    {
+        if (!hideMenuWhenOverlayOpens || menu == null)
+            return;
+
+        // Liegt das Overlay im Menü selbst, würde es mit ausgeblendet -> dann Menü lassen.
+        if (shownObject != null && shownObject.transform.IsChildOf(menu.transform))
+            return;
+
+        menu.SetActive(false);
+    }
+
     protected override void OnPressed() => ToggleMenu();
 
     /// <summary>Kann auch direkt aufgerufen werden (z.B. von einem UI-Button oder Controller-Input).</summary>
     public void ToggleMenu()
     {
-        if (menu == null || Time.unscaledTime - m_LastToggleTime < toggleCooldown)
+        if (Time.unscaledTime - m_LastToggleTime < toggleCooldown)
             return;
 
         m_LastToggleTime = Time.unscaledTime;
-        menu.SetActive(!menu.activeSelf);
+
+        // Overlay offen? Dann schließen und zurück zum normalen Menü.
+        if (closeOverlaysFirst && MenuOverlays.CloseAll())
+        {
+            if (menu != null)
+                menu.SetActive(true);
+            return;
+        }
+
+        if (menu != null)
+            menu.SetActive(!menu.activeSelf);
     }
 }
