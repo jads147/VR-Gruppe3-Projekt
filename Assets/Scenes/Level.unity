@@ -20539,6 +20539,38 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 302613605}
   m_Mesh: {fileID: 4300000, guid: 2b44582523d7fdf48ae9a30dd4e38897, type: 3}
+--- !u!1 &303166111 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 962033349164277285, guid: c87e0cb723547224caf31389c9efb1a7, type: 3}
+  m_PrefabInstance: {fileID: 6383856631397936493}
+  m_PrefabAsset: {fileID: 0}
+--- !u!54 &303166119
+Rigidbody:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 303166111}
+  serializedVersion: 5
+  m_Mass: 1
+  m_LinearDamping: 0
+  m_AngularDamping: 0.05
+  m_CenterOfMass: {x: 0, y: 0, z: 0}
+  m_InertiaTensor: {x: 1, y: 1, z: 1}
+  m_InertiaRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ImplicitCom: 1
+  m_ImplicitTensor: 1
+  m_UseGravity: 0
+  m_IsKinematic: 1
+  m_Interpolate: 0
+  m_Constraints: 0
+  m_CollisionDetection: 0
 --- !u!1 &304186098
 GameObject:
   m_ObjectHideFlags: 0
@@ -107888,19 +107920,7 @@ MonoBehaviour:
       m_Calls: []
   onScoreSubmitted:
     m_PersistentCalls:
-      m_Calls:
-      - m_Target: {fileID: 11400000, guid: 0f58e193d4785024187598f2f5bc46bd, type: 2}
-        m_TargetAssemblyTypeName: SceneLoader, Assembly-CSharp
-        m_MethodName: LoadScene
-        m_Mode: 5
-        m_Arguments:
-          m_ObjectArgument: {fileID: 0}
-          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
-          m_IntArgument: 0
-          m_FloatArgument: 0
-          m_StringArgument: Level
-          m_BoolArgument: 0
-        m_CallState: 2
+      m_Calls: []
   onCancelled:
     m_PersistentCalls:
       m_Calls: []
@@ -147239,14 +147259,14 @@ MonoBehaviour:
       m_Calls:
       - m_Target: {fileID: 11400000, guid: 0f58e193d4785024187598f2f5bc46bd, type: 2}
         m_TargetAssemblyTypeName: SceneLoader, Assembly-CSharp
-        m_MethodName: LoadScene
-        m_Mode: 5
+        m_MethodName: ReloadGame
+        m_Mode: 1
         m_Arguments:
           m_ObjectArgument: {fileID: 0}
           m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
           m_IntArgument: 0
           m_FloatArgument: 0
-          m_StringArgument: Level
+          m_StringArgument:
           m_BoolArgument: 0
         m_CallState: 2
 --- !u!1001 &2308659360528002320
@@ -148849,6 +148869,10 @@ PrefabInstance:
       propertyPath: orbitParent
       value: 
       objectReference: {fileID: 1639252691}
+    - target: {fileID: 2585622726963875257, guid: c87e0cb723547224caf31389c9efb1a7, type: 3}
+      propertyPath: roundEnder
+      value: 
+      objectReference: {fileID: 1590960479}
     - target: {fileID: 7061962524603522011, guid: c87e0cb723547224caf31389c9efb1a7, type: 3}
       propertyPath: m_Name
       value: Lectern
@@ -148908,7 +148932,10 @@ PrefabInstance:
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
-    m_AddedComponents: []
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: 962033349164277285, guid: c87e0cb723547224caf31389c9efb1a7, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 303166119}
   m_SourcePrefab: {fileID: 100100000, guid: c87e0cb723547224caf31389c9efb1a7, type: 3}
 --- !u!23 &6423314662767803302
 MeshRenderer:

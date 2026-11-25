@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
@@ -18,6 +19,26 @@ public class ItemSpawner : PressableButton
 
     int m_LastSpawnFrame = -1;
 
+    // Alle gespawnten Items (aller Spawner), damit "Reload Game" sie wieder entfernen kann.
+    static readonly List<GameObject> s_Spawned = new();
+
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    static void ResetStatics() => s_Spawned.Clear();
+
+    /// <summary>Entfernt alle noch vorhandenen gespawnten Items.</summary>
+    public static void DestroyAllSpawned()
+    {
+        foreach (var item in s_Spawned)
+        {
+            if (item == null)
+                continue;
+            // Sofort deaktivieren (Destroy wirkt erst am Ende des Frames).
+            item.SetActive(false);
+            Destroy(item);
+        }
+        s_Spawned.Clear();
+    }
+
     protected override void OnPressed() => SpawnItem();
 
     public void SpawnItem()
@@ -35,7 +56,8 @@ public class ItemSpawner : PressableButton
         }
 
         // Keep the item's world pose while making it follow the orbiting AR setup.
-        Instantiate(spawnItem, spawnPoint.position, spawnPoint.rotation, orbitParent);
+        s_Spawned.RemoveAll(item => item == null);
+        s_Spawned.Add(Instantiate(spawnItem, spawnPoint.position, spawnPoint.rotation, orbitParent));
 
         // Plays as a temporary 3D sound at the spawn point, so it comes from the right direction in VR.
         if (spawnSound != null)

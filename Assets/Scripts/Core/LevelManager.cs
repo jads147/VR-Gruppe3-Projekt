@@ -10,7 +10,8 @@ using UnityEngine;
 /// Nach dem Eintragen des Scores wird die Kopie entfernt (<see cref="EndLevel"/>) – so startet jede Runde
 /// mit einem frischen Turm, ohne die Szene neu zu laden.
 ///
-/// Die Auswahl bleibt über "Reload Level" (Szene neu laden) erhalten. Jede Level-ID hat ihre eigene Bestenliste –
+/// "Reload Game" (<see cref="RoundReset"/>) entfernt die Kopie ebenfalls, ohne die Szene neu zu laden.
+/// Die Auswahl bleibt auch über ein echtes Neuladen der Szene erhalten. Jede Level-ID hat ihre eigene Bestenliste –
 /// die ID daher nach dem ersten Spielen nicht mehr ändern, sonst landen alte Einträge in einer "verwaisten" Liste.
 /// </summary>
 public class LevelManager : MonoBehaviour

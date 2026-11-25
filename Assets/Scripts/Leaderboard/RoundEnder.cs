@@ -45,7 +45,7 @@ public class RoundEnder : MonoBehaviour, IMenuOverlay
     [Tooltip("Tastatur wurde geöffnet (z.B. Menü ausblenden).")]
     public UnityEvent onRoundEnded;
 
-    [Tooltip("Score wurde eingetragen (z.B. Level neu laden).")]
+    [Tooltip("Score wurde eingetragen. Die Runde ist dann schon zurückgesetzt – hier KEINE Szene neu laden.")]
     public UnityEvent onScoreSubmitted;
 
     [Tooltip("Eingabe wurde abgebrochen, die Runde läuft weiter.")]
@@ -201,18 +201,21 @@ public class RoundEnder : MonoBehaviour, IMenuOverlay
         if (namePanel != null)
             namePanel.SetActive(false);
 
-        // Bereit für die nächste Runde: Level-Kopie weg, Start/Tutorial/Level-Auswahl wieder freigeben.
-        if (gameStarter == null)
-            gameStarter = FindAnyObjectByType<GameStarter>(FindObjectsInactive.Include);
-        if (gameStarter != null)
-            gameStarter.ResetForNextRound();
-        if (LevelManager.Current != null)
-            LevelManager.Current.EndLevel();
-        // Zuletzt: beendet die Runde -> RoundVisibility blendet die Menü-Buttons wieder ein.
-        if (GameManager.Instance != null)
-            GameManager.Instance.ResetGame();
+        // Bereit für die nächste Runde: Level-Kopie + Items weg, Score/Timer auf 0 – ohne Szenen-Reload.
+        RoundReset.ResetRound(gameStarter);
 
         onScoreSubmitted?.Invoke();
+    }
+
+    /// <summary>Schließt eine offene Namenseingabe ohne Eintrag und ohne den Timer fortzusetzen (z.B. bei "Reload Game").</summary>
+    public void Abort()
+    {
+        if (!IsEnteringName)
+            return;
+
+        IsEnteringName = false;
+        if (namePanel != null)
+            namePanel.SetActive(false);
     }
 
     void Cancel()

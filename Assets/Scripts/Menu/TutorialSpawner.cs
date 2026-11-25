@@ -14,7 +14,7 @@ public class TutorialSpawner : MonoBehaviour
 
     private GameObject current;
 
-    /// <summary>True, sobald das Spiel gestartet wurde. Wird erst durch einen Szenen-Reload zurückgesetzt.</summary>
+    /// <summary>True, solange eine Runde läuft. Wird beim Zurücksetzen der Runde (<see cref="RoundReset"/>) aufgehoben.</summary>
     public bool IsLocked { get; private set; }
 
     /// <summary>Entfernt ein laufendes Tutorial und verhindert weitere Spawns (bis die Szene neu geladen wird).</summary>
@@ -22,6 +22,16 @@ public class TutorialSpawner : MonoBehaviour
     {
         IsLocked = true;
 
+        if (current != null)
+        {
+            Destroy(current);
+            current = null;
+        }
+    }
+
+    /// <summary>Entfernt ein laufendes Tutorial, ohne Spawns zu sperren (z.B. bei "Reload Game").</summary>
+    public void Clear()
+    {
         if (current != null)
         {
             Destroy(current);
