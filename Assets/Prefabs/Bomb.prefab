@@ -60,7 +60,7 @@ Rigidbody:
   m_ImplicitTensor: 1
   m_UseGravity: 1
   m_IsKinematic: 0
-  m_Interpolate: 1
+  m_Interpolate: 0
   m_Constraints: 0
   m_CollisionDetection: 2
 --- !u!114 &4722489389562238431
@@ -232,8 +232,8 @@ MonoBehaviour:
   collisionLayers:
     serializedVersion: 2
     m_Bits: 1096
-  radius: 2.5
-  force: 17
+  radius: 2
+  force: 16
   upwardsModifier: 0.4
   affectedLayers:
     serializedVersion: 2

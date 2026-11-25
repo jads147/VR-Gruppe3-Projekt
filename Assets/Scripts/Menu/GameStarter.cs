@@ -3,7 +3,8 @@ using UnityEngine.Events;
 using UnityEngine.UI;
 
 /// <summary>
-/// Startet das Spiel: Score zurücksetzen, Tutorial beenden + sperren, gewähltes Level starten, Timer starten.
+/// Startet das Spiel: Score zurücksetzen, Tutorial beenden + sperren, gespawnte Items entfernen,
+/// gewähltes Level starten, Timer starten.
 /// StartGame() über das OnClick-Event des Start-Buttons aufrufen.
 ///
 /// Nach dem Eintragen des Scores ruft der <see cref="RoundEnder"/> ResetForNextRound() auf –
@@ -41,6 +42,9 @@ public class GameStarter : MonoBehaviour
             tutorialSpawner.Lock();
 
         SetInteractable(false);
+
+        // Im Menü/Tutorial gespawnte Items entfernen, sonst könnte man sie ansammeln und mit in die Runde nehmen.
+        ItemSpawner.DestroyAllSpawned();
 
         // Punkte aus dem Tutorial verwerfen, Runde + Timer starten.
         if (GameManager.Instance != null)

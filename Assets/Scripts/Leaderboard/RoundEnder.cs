@@ -94,6 +94,9 @@ public class RoundEnder : MonoBehaviour, IMenuOverlay
     void OnDestroy()
     {
         MenuOverlays.Unregister(this);
+        // Z.B. Szenenwechsel bei offenem Screen: Sperre nicht in die nächste Szene mitnehmen.
+        if (IsEnteringName)
+            GrabLock.Unlock();
 
         if (keyboard != null)
         {
@@ -126,6 +129,8 @@ public class RoundEnder : MonoBehaviour, IMenuOverlay
         m_TimerWasRunning = gameManager.IsTimerRunning;
         gameManager.PauseTimer();
         IsEnteringName = true;
+        // Bei angehaltener Zeit nicht weiterbauen können.
+        GrabLock.Lock();
 
         // Ist "Rundenende" (oder ein Eltern-Objekt des Panels) deaktiviert, wäre das Panel unsichtbar.
         ActivateHierarchy(transform);
@@ -196,6 +201,7 @@ public class RoundEnder : MonoBehaviour, IMenuOverlay
             return;
 
         IsEnteringName = false;
+        GrabLock.Unlock();
         LastRank = Leaderboard.Submit(m_LevelId, playerName, m_FinalScore, m_FinalTime);
 
         if (namePanel != null)
@@ -214,6 +220,7 @@ public class RoundEnder : MonoBehaviour, IMenuOverlay
             return;
 
         IsEnteringName = false;
+        GrabLock.Unlock();
         if (namePanel != null)
             namePanel.SetActive(false);
     }
@@ -224,6 +231,7 @@ public class RoundEnder : MonoBehaviour, IMenuOverlay
             return;
 
         IsEnteringName = false;
+        GrabLock.Unlock();
         if (m_TimerWasRunning && GameManager.Instance != null)
             GameManager.Instance.ResumeTimer();
         if (namePanel != null)
