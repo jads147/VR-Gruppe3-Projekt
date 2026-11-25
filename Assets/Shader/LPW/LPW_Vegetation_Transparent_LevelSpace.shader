@@ -1024,7 +1024,9 @@ Shader "Nicrom/LPW/Low Poly Vegetation Transparent (Level Space)"
 				#if defined( ASE_OPAQUE_KEEP_ALPHA )
 					return half4( color.rgb, color.a );
 				#else
-					return half4( color.rgb, OutputAlpha( color.a, isTransparent ) );
+					// Passthrough: always export alpha 1. With MSAA, URP would export the texture alpha
+					// (alpha-to-coverage), which lets the real world show through the cutout grass.
+					return half4( color.rgb, 1.0 );
 				#endif
 			}
 			ENDHLSL

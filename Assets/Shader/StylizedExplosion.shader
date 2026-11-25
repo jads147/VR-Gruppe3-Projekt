@@ -5,7 +5,8 @@ Shader "Custom/StylizedExplosion"
         Tags { "RenderPipeline"="UniversalPipeline" "Queue"="Transparent" "RenderType"="Transparent" }
         Pass
         {
-            Blend SrcAlpha OneMinusSrcAlpha
+            // Alpha channel: One OneMinusSrcAlpha so objects behind stay opaque over passthrough.
+            Blend SrcAlpha OneMinusSrcAlpha, One OneMinusSrcAlpha
             ZWrite Off
             Cull Off
 

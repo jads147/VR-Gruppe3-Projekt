@@ -27,7 +27,8 @@ Shader "Custom/Portal Animated Rim"
 
         Pass
         {
-            Blend SrcAlpha OneMinusSrcAlpha
+            // Alpha channel: One OneMinusSrcAlpha so objects behind stay opaque over passthrough.
+            Blend SrcAlpha OneMinusSrcAlpha, One OneMinusSrcAlpha
             ZWrite Off
             Cull Off
 
