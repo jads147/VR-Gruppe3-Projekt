@@ -30,5 +30,5 @@ MonoBehaviour:
   volume: 0.7
   minDistance: 7
   maxDistance: 40
-  positiveClip: {fileID: 0}
-  negativeClip: {fileID: 0}
+  positiveClip: {fileID: 8300000, guid: cd3896d9de3a168408eee9723efbd471, type: 3}
+  negativeClip: {fileID: 8300000, guid: 82420473160a3b148acbcc4a2363d8ff, type: 3}

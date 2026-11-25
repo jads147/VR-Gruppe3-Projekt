@@ -34,8 +34,6 @@ public class PointEffectSettings : ScriptableObject
     [Header("Sound")]
     public bool playSound = true;
     [Range(0f, 1f)] public float volume = 0.7f;
-    [Min(0f)] public float minDistance = 7f;
-    [Min(0.1f)] public float maxDistance = 40f;
     [Tooltip("Leave empty to use the built-in generated chime.")]
     public AudioClip positiveClip;
     [Tooltip("Leave empty to use the built-in generated buzz.")]

@@ -251,15 +251,16 @@ public static class PointBlockEffects
             clip = s.negativeClip != null ? s.negativeClip : generatedBuzz;
         }
 
+        // Clips with "Preload Audio Data" off are not loaded yet when first played.
+        if (clip.loadState == AudioDataLoadState.Unloaded)
+            clip.LoadAudioData();
+
         var go = new GameObject(positive ? "Point Gain Sound" : "Point Loss Sound");
         go.transform.position = position;
         var source = go.AddComponent<AudioSource>();
         source.clip = clip;
         source.volume = s.volume;
-        source.spatialBlend = 1f;
-        source.minDistance = s.minDistance;
-        source.maxDistance = Mathf.Max(s.minDistance + 0.1f, s.maxDistance);
-        source.rolloffMode = AudioRolloffMode.Logarithmic;
+        source.spatialBlend = 0f; // UI feedback: plain 2D, same volume wherever the block lands
         source.pitch = Random.Range(0.96f, 1.04f);
         source.Play();
         Object.Destroy(go, clip.length / source.pitch + 0.1f);
