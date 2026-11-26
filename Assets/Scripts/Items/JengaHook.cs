@@ -1,50 +1,74 @@
 using UnityEngine;
+using UnityEngine.InputSystem;
 using UnityEngine.Rendering;
+using UnityEngine.Serialization;
 using UnityEngine.XR.Interaction.Toolkit;
 using UnityEngine.XR.Interaction.Toolkit.Interactables;
+using UnityEngine.XR.Interaction.Toolkit.Interactors;
 
 /// <summary>
 /// Throwable grappling hook. Grab it and throw it: a rope connects it to the hand that threw it.
-/// If it hits a Jenga block hard enough, it sticks to it. Pulling the hand back (along the rope) then pulls the
-/// block straight out of the face that was hit (end face = lengthwise, long side = sideways). The force only acts
-/// along that one block axis, never up/down. Load-bearing blocks resist; pulling too hard snaps the rope.
-/// After one successful pull the hook is used up (optional).
+/// If it hits a Jenga block hard enough, it sticks to it. The rope then behaves like an elastic band between hand
+/// and hook: moving the hand away stretches it and pulls the block towards the hand.
+/// The pull has 2 degrees of freedom: the block moves freely on the world X/Z plane, never up/down
+/// (optionally its height and rotation are locked completely while it is pulled).
+/// If the rope tension exceeds <see cref="breakForce"/> (e.g. a load-bearing block that doesn't move), it snaps.
+/// Otherwise the rope stays attached (also after a miss, or once the block is out) until the trigger of the hand
+/// that threw the hook is pressed. After one pull the hook is used up (optional).
 /// </summary>
 [RequireComponent(typeof(XRGrabInteractable), typeof(Rigidbody))]
 public sealed class JengaHook : MonoBehaviour
 {
     private enum State { Idle, Flying, Stuck, Spent }
 
+    /// <summary>Controller buttons that can release the rope (several can be combined).</summary>
+    [System.Flags]
+    public enum ReleaseButtons
+    {
+        None = 0,
+        Trigger = 1 << 0,
+        Grip = 1 << 1,
+        PrimaryButton = 1 << 2,   // A / X
+        SecondaryButton = 1 << 3, // B / Y
+        ThumbstickClick = 1 << 4,
+        XriActivate = 1 << 5,     // the Activate input of the throwing interactor (as set up in the rig)
+    }
+
     [Header("Sticking")]
     [SerializeField] private LayerMask blockLayers;
     [Tooltip("Minimum impact speed (m/s) for the hook to stick. Slower touches just bounce off.")]
     [SerializeField, Min(0f)] private float minStickSpeed = 1f;
-    [Tooltip("Only for hits on the top/bottom face: the nearest side is used, unless the hit is closer to the " +
-             "middle than this (fraction of half the size); then the side facing the player is used.")]
-    [SerializeField, Range(0f, 1f)] private float sideHitThreshold = 0.2f;
 
-    [Header("Pulling")]
-    [Tooltip("How far (meters) the hand has to be pulled back to move a block completely out " +
-             "(its length when pulled lengthwise, its width when pulled sideways).")]
-    [SerializeField, Min(0.05f)] private float handPullToRemove = 0.6f;
-    [Tooltip("Pull acceleration per meter the block lags behind its target position (m/s² per m).")]
-    [SerializeField, Min(0f)] private float stiffness = 40f;
-    [Tooltip("Brakes the block's outward speed, so it follows the hand instead of shooting out.")]
-    [SerializeField, Min(0f)] private float damping = 8f;
-    [Tooltip("Upper limit of the pull acceleration (m/s²). Low = load-bearing blocks stay stuck and the rope snaps.")]
-    [SerializeField, Min(0f)] private float maxAcceleration = 20f;
-    [Tooltip("Let go automatically once the block has moved its full size along the pull direction.")]
-    [SerializeField] private bool releaseWhenOut = true;
-    [Tooltip("The rope snaps if the hand is pulled this much (meters) further than the block can follow.")]
-    [SerializeField, Min(0.05f)] private float breakStretch = 0.5f;
+    [Header("Rope Strength")]
+    [Tooltip("How much the rope withstands (Newton). If the rope tension gets higher, it snaps. " +
+             "A Jenga block weighs ~1 kg (≈10 N): low values = only loose blocks can be pulled out.")]
+    [SerializeField, Min(0.1f)] private float breakForce = 40f;
+    [Tooltip("Rope stiffness (Newton per meter of stretch). Higher = the block follows the hand more directly, " +
+             "and the rope snaps after less stretch (snap stretch = Break Force / Stiffness).")]
+    [SerializeField, Min(1f)] private float ropeStiffness = 300f;
+    [Tooltip("Damps the block's movement relative to the hand (Newton per m/s), so it doesn't overshoot.")]
+    [SerializeField, Min(0f)] private float ropeDamping = 10f;
+    [Tooltip("The rope reels in automatically when the hand comes closer, so it never hangs slack while stuck.")]
+    [SerializeField] private bool autoReel = true;
+
+    [Header("Pulling (2 DOF: X/Z only)")]
+    [Tooltip("While pulled, the block's height and rotation are frozen: it can only slide on X/Z. " +
+             "Off = only the pull force is horizontal; gravity and collisions still move the block freely.")]
+    [SerializeField] private bool lockBlockHeight = true;
+    [Tooltip("Once the block has moved its full length or width out of its place, the height/rotation lock is " +
+             "removed so it can fall out of the tower. The rope stays attached.")]
+    [SerializeField] private bool unlockWhenOut = true;
 
     [Header("Rope")]
+    [Tooltip("Which controller button(s) release the rope. Several can be selected.")]
+    [SerializeField] private ReleaseButtons releaseButtons = ReleaseButtons.Trigger;
+    [Tooltip("Off = only the buttons of the hand that threw the hook count. On = either hand.")]
+    [SerializeField] private bool releaseWithEitherHand = false;
+    [Tooltip("Optional. An additional Input Action that also releases the rope (works with any hand).")]
+    [FormerlySerializedAs("releaseButton")]
+    [SerializeField] private InputActionReference customReleaseAction;
     [Tooltip("The rope tears if the hook gets further away from the hand than this (meters).")]
     [SerializeField, Min(1f)] private float maxRopeLength = 30f;
-    [Tooltip("After a miss (hit something that is not a block), the rope is dropped after this many seconds.")]
-    [SerializeField, Min(0f)] private float missRopeTime = 1.5f;
-    [Tooltip("The rope is dropped if the hook has been flying this long without hitting anything.")]
-    [SerializeField, Min(0.5f)] private float maxFlightTime = 5f;
 
     [Header("After Use")]
     [Tooltip("Destroy the hook after it has pulled a block (or snapped). Misses don't count.")]
@@ -60,8 +84,8 @@ public sealed class JengaHook : MonoBehaviour
     [SerializeField] private Color tenseColor = new Color(1f, 0.25f, 0.15f);
     [Tooltip("Sag of the loose rope, as a fraction of its length.")]
     [SerializeField, Range(0f, 0.3f)] private float slackSag = 0.05f;
-    [Tooltip("Hand lead (meters) at which the rope is pulled completely straight.")]
-    [SerializeField, Min(0.01f)] private float tautDistance = 0.08f;
+    [Tooltip("Rope stretch (meters) at which the rope is pulled completely straight.")]
+    [SerializeField, Min(0.001f)] private float tautStretch = 0.02f;
     [SerializeField, Range(2, 64)] private int lineSegments = 24;
     [Tooltip("Optional. Leave empty to use URP Unlit.")]
     [SerializeField] private Material lineMaterial;
@@ -75,21 +99,26 @@ public sealed class JengaHook : MonoBehaviour
 
     private State state = State.Idle;
     private Transform hand;
-    private float flightTime;
-    private float missTime = -1f;
+    private XRBaseInputInteractor handInput;
+    private InteractorHandedness handSide;
+    private InputAction leftReleaseAction;
+    private InputAction rightReleaseAction;
     private float destroyAt = float.PositiveInfinity;
 
-    // Stuck state. Pull axis and center are stored in the block's local space, so they follow it.
+    // Stuck state.
     private Rigidbody target;
     private FixedJoint joint;
     private float storedMass;
+    private RigidbodyConstraints storedConstraints;
     private Vector3 localCenter;
-    private Vector3 localPullAxis;
-    private Vector3 handStart;
-    private Vector3 ropeStartDirection;
     private Vector3 startCenter;
-    private Vector3 startDirection;
-    private float sizeAlongPull;
+    private Quaternion startRotation;
+    private Vector3 blockSize;
+    private int verticalAxis;
+    private float ropeLength;
+    private Vector3 lastHandPosition;
+    private Vector3 handVelocity;
+    private bool heightUnlocked;
 
     private void Reset()
     {
@@ -103,6 +132,8 @@ public sealed class JengaHook : MonoBehaviour
         colliders = GetComponentsInChildren<Collider>();
         colliderWasTrigger = new bool[colliders.Length];
         CreateLine();
+        leftReleaseAction = CreateReleaseAction("LeftHand");
+        rightReleaseAction = CreateReleaseAction("RightHand");
     }
 
     private void OnEnable()
@@ -110,6 +141,10 @@ public sealed class JengaHook : MonoBehaviour
         grab.selectEntered.AddListener(OnGrabbed);
         grab.selectExited.AddListener(OnThrown);
         Application.onBeforeRender += UpdateLine;
+        leftReleaseAction?.Enable();
+        rightReleaseAction?.Enable();
+        if (customReleaseAction != null && customReleaseAction.action != null)
+            customReleaseAction.action.Enable();
     }
 
     private void OnDisable()
@@ -117,6 +152,8 @@ public sealed class JengaHook : MonoBehaviour
         grab.selectEntered.RemoveListener(OnGrabbed);
         grab.selectExited.RemoveListener(OnThrown);
         Application.onBeforeRender -= UpdateLine;
+        leftReleaseAction?.Disable();
+        rightReleaseAction?.Disable();
         Unstick();
         DropRope();
         if (line != null)
@@ -127,6 +164,8 @@ public sealed class JengaHook : MonoBehaviour
     {
         if (lineInstance != null)
             Destroy(lineInstance);
+        leftReleaseAction?.Dispose();
+        rightReleaseAction?.Dispose();
     }
 
     // ---------------------------------------------------------------- throw / grab
@@ -149,9 +188,11 @@ public sealed class JengaHook : MonoBehaviour
             return;
 
         hand = args.interactorObject.transform;
+        handInput = args.interactorObject as XRBaseInputInteractor;
+        handSide = args.interactorObject is XRBaseInteractor interactor
+            ? interactor.handedness
+            : InteractorHandedness.None;
         state = State.Flying;
-        flightTime = 0f;
-        missTime = -1f;
     }
 
     private void OnCollisionEnter(Collision collision)
@@ -163,53 +204,30 @@ public sealed class JengaHook : MonoBehaviour
         bool isBlock = other != null && !other.isKinematic &&
                        (blockLayers.value & (1 << other.gameObject.layer)) != 0;
 
-        if (isBlock && collision.relativeVelocity.magnitude >= minStickSpeed && collision.contactCount > 0)
-        {
-            Stick(other, collision.GetContact(0).point);
-            return;
-        }
-
-        // Hit something else (or too softly): keep the slack rope a moment, then drop it.
-        if (missTime < 0f)
-            missTime = 0f;
+        // Anything else (or too soft): the hook just lies there, the rope stays until the trigger is pressed.
+        if (isBlock && collision.relativeVelocity.magnitude >= minStickSpeed)
+            Stick(other);
     }
 
     // ---------------------------------------------------------------- sticking
 
-    private void Stick(Rigidbody block, Vector3 point)
+    private void Stick(Rigidbody block)
     {
         if (hand == null || !TryGetLocalBounds(block.transform, out Bounds bounds))
             return;
 
         Transform blockTransform = block.transform;
-        Vector3 size = Vector3.Scale(bounds.size, Abs(blockTransform.lossyScale));
-        Vector3 worldCenter = blockTransform.TransformPoint(bounds.center);
-
-        // The face that was hit decides the pull axis; the axis pointing (most) up/down is never used.
-        int verticalAxis = MostAlignedAxis(blockTransform.InverseTransformDirection(Vector3.up));
-        int axis = ClosestSideAxis(blockTransform, worldCenter, size, point, -1, out float offset, out _);
-        float sign = Mathf.Sign(offset);
-
-        if (axis == verticalAxis)
-        {
-            axis = ClosestSideAxis(blockTransform, worldCenter, size, point, verticalAxis, out offset,
-                out float ratio);
-            sign = ratio > sideHitThreshold
-                ? Mathf.Sign(offset)
-                : Mathf.Sign(blockTransform.InverseTransformDirection(hand.position - worldCenter)[axis]);
-        }
-
-        Vector3 localAxis = Vector3.zero;
-        localAxis[axis] = sign;
-
         target = block;
         localCenter = bounds.center;
-        localPullAxis = localAxis;
-        handStart = hand.position;
-        ropeStartDirection = (hand.position - point).normalized;
-        startCenter = worldCenter;
-        startDirection = blockTransform.TransformDirection(localAxis).normalized;
-        sizeAlongPull = size[axis];
+        startCenter = blockTransform.TransformPoint(bounds.center);
+        startRotation = blockTransform.rotation;
+        blockSize = Vector3.Scale(bounds.size, Abs(blockTransform.lossyScale));
+        verticalAxis = MostAlignedAxis(blockTransform.InverseTransformDirection(Vector3.up));
+
+        ropeLength = Vector3.Distance(hand.position, RopeEnd);
+        lastHandPosition = hand.position;
+        handVelocity = Vector3.zero;
+        heightUnlocked = false;
 
         // Ride on the block: almost weightless, and its colliders don't push the neighbours.
         // (useGravity is left alone: XRGrabInteractable restores it on release if the hook is grabbed again.)
@@ -221,6 +239,16 @@ public sealed class JengaHook : MonoBehaviour
         {
             colliderWasTrigger[i] = colliders[i].isTrigger;
             colliders[i].isTrigger = true;
+        }
+
+        // 2 DOF: the block may only slide on X/Z while the rope holds it.
+        storedConstraints = block.constraints;
+        if (lockBlockHeight)
+        {
+            block.constraints = storedConstraints | RigidbodyConstraints.FreezePositionY |
+                                RigidbodyConstraints.FreezeRotation;
+            block.linearVelocity = Vector3.ProjectOnPlane(block.linearVelocity, Vector3.up);
+            block.angularVelocity = Vector3.zero;
         }
 
         joint = gameObject.AddComponent<FixedJoint>();
@@ -239,6 +267,12 @@ public sealed class JengaHook : MonoBehaviour
         if (joint != null)
             Destroy(joint);
         joint = null;
+
+        if (target != null)
+        {
+            target.constraints = storedConstraints;
+            target.WakeUp();
+        }
         target = null;
 
         body.mass = storedMass;
@@ -249,6 +283,7 @@ public sealed class JengaHook : MonoBehaviour
     private void DropRope()
     {
         hand = null;
+        handInput = null;
         if (state == State.Flying)
             state = State.Idle;
     }
@@ -272,6 +307,56 @@ public sealed class JengaHook : MonoBehaviour
     {
         if (Time.time >= destroyAt && !grab.isSelected)
             Destroy(gameObject);
+
+        if (hand != null && ReleasePressed())
+        {
+            // Stuck: the pull is over (hook used up). Not stuck (miss): just drop the rope, the hook stays usable.
+            if (state == State.Stuck)
+                FinishPull();
+            else
+                DropRope();
+        }
+    }
+
+    private bool ReleasePressed()
+    {
+        // Unknown hand (e.g. simulator without handedness): accept both controllers.
+        bool left = releaseWithEitherHand || handSide != InteractorHandedness.Right;
+        bool right = releaseWithEitherHand || handSide != InteractorHandedness.Left;
+
+        if (left && leftReleaseAction != null && leftReleaseAction.WasPerformedThisFrame())
+            return true;
+        if (right && rightReleaseAction != null && rightReleaseAction.WasPerformedThisFrame())
+            return true;
+
+        if ((releaseButtons & ReleaseButtons.XriActivate) != 0 && handInput != null &&
+            handInput.activateInput != null && handInput.activateInput.ReadWasPerformedThisFrame())
+            return true;
+
+        return customReleaseAction != null && customReleaseAction.action != null &&
+               customReleaseAction.action.WasPerformedThisFrame();
+    }
+
+    /// <summary>A button action bound to the selected controller buttons of one hand (by XR usage).</summary>
+    private InputAction CreateReleaseAction(string hand)
+    {
+        var action = new InputAction($"HookRelease{hand}", InputActionType.Button);
+        AddUsage(ReleaseButtons.Trigger, "TriggerButton");
+        AddUsage(ReleaseButtons.Grip, "GripButton");
+        AddUsage(ReleaseButtons.PrimaryButton, "PrimaryButton");
+        AddUsage(ReleaseButtons.SecondaryButton, "SecondaryButton");
+        AddUsage(ReleaseButtons.ThumbstickClick, "Primary2DAxisClick");
+
+        if (action.bindings.Count > 0)
+            return action;
+        action.Dispose();
+        return null;
+
+        void AddUsage(ReleaseButtons button, string usage)
+        {
+            if ((releaseButtons & button) != 0)
+                action.AddBinding($"<XRController>{{{hand}}}/{{{usage}}}");
+        }
     }
 
     // ---------------------------------------------------------------- pulling
@@ -293,56 +378,78 @@ public sealed class JengaHook : MonoBehaviour
             return;
         }
 
-        GetPullState(out float handPull, out float travel, out float handLead);
+        // Hand velocity (smoothed: the hand pose updates per frame, not per physics step).
+        Vector3 handPosition = hand.position;
+        Vector3 rawVelocity = (handPosition - lastHandPosition) / Time.fixedDeltaTime;
+        handVelocity = Vector3.Lerp(handVelocity, rawVelocity, 0.3f);
+        lastHandPosition = handPosition;
 
-        // Hand pulled much further than the block could follow (stuck block): the rope snaps.
-        if (handLead > breakStretch || (releaseWhenOut && travel >= sizeAlongPull))
+        Vector3 toHand = handPosition - RopeEnd;
+        float distance = toHand.magnitude;
+        if (autoReel && distance < ropeLength)
+            ropeLength = distance;
+
+        float stretch = distance - ropeLength;
+        float tension = ropeStiffness * Mathf.Max(0f, stretch);
+
+        // The rope can't take more: it snaps.
+        if (tension > breakForce)
         {
             FinishPull();
             return;
         }
 
-        // Where the block should be: the hand pull, scaled so handPullToRemove = the block's size along the axis.
-        float error = handPull * PullGain - travel;
-        if (error <= 0f)
+        // Out of the tower: let it fall/tilt freely from now on, but keep it on the rope.
+        if (unlockWhenOut && !heightUnlocked && IsOut())
+        {
+            heightUnlocked = true;
+            target.constraints = storedConstraints;
+            target.WakeUp();
+        }
+
+        if (stretch <= 0f)
             return;
 
-        Vector3 pullDirection = target.transform.TransformDirection(localPullAxis).normalized;
-        float outwardSpeed = Vector3.Dot(target.linearVelocity, pullDirection);
-        // Never negative: the rope can only pull, never push the block back in.
-        float acceleration = Mathf.Clamp(stiffness * error - damping * outwardSpeed, 0f, maxAcceleration);
-        if (acceleration > 0f)
-            target.AddForce(pullDirection * acceleration, ForceMode.Acceleration);
+        // 2 DOF: only the horizontal (X/Z) part of the rope pull acts on the block.
+        Vector3 flat = Vector3.ProjectOnPlane(toHand, Vector3.up);
+        if (flat.sqrMagnitude < 1e-6f)
+            return;
+        Vector3 pullDirection = flat.normalized;
+
+        float relativeSpeed = Vector3.Dot(target.linearVelocity - handVelocity, pullDirection);
+        float force = Mathf.Clamp(tension * (flat.magnitude / distance) - ropeDamping * relativeSpeed,
+            0f, breakForce);
+        if (force > 0f)
+            target.AddForce(pullDirection * force, ForceMode.Force);
     }
 
     private void UpdateFlight()
     {
-        flightTime += Time.fixedDeltaTime;
-        if (missTime >= 0f)
-            missTime += Time.fixedDeltaTime;
-
-        bool tooFar = hand == null || Vector3.Distance(hand.position, RopeEnd) > maxRopeLength;
-        if (tooFar || flightTime > maxFlightTime || missTime > missRopeTime)
+        if (hand == null || Vector3.Distance(hand.position, RopeEnd) > maxRopeLength)
             DropRope();
     }
 
-    private float PullGain => sizeAlongPull / handPullToRemove;
+    /// <summary>
+    /// True once the block has moved its full length or width (along its own horizontal axes) away from where it
+    /// was, or (with free height) has dropped by half its height, i.e. fallen out of the tower.
+    /// Measured from where it was when the hook stuck.
+    /// </summary>
+    private bool IsOut()
+    {
+        Vector3 center = target.transform.TransformPoint(localCenter);
+        Vector3 travel = Quaternion.Inverse(startRotation) * (center - startCenter);
+
+        for (int i = 0; i < 3; i++)
+        {
+            if (i != verticalAxis && Mathf.Abs(travel[i]) >= blockSize[i])
+                return true;
+        }
+
+        return !lockBlockHeight && startCenter.y - center.y > blockSize[verticalAxis] * 0.5f;
+    }
 
     /// <summary>World position where the rope is attached to the hook.</summary>
     private Vector3 RopeEnd => ropeAnchor != null ? ropeAnchor.position : transform.position;
-
-    /// <summary>
-    /// handPull: how far the hand moved back along the rope since sticking (m).
-    /// travel: how far the block moved out along its pull axis (m).
-    /// handLead: how much further the hand is pulled than the block has followed, in hand meters.
-    /// </summary>
-    private void GetPullState(out float handPull, out float travel, out float handLead)
-    {
-        handPull = Vector3.Dot(hand.position - handStart, ropeStartDirection);
-        Vector3 center = target.transform.TransformPoint(localCenter);
-        travel = Vector3.Dot(center - startCenter, startDirection);
-        handLead = handPull - travel / PullGain;
-    }
 
     // ---------------------------------------------------------------- rope visual
 
@@ -365,9 +472,9 @@ public sealed class JengaHook : MonoBehaviour
         float tension = 0f;
         if (state == State.Stuck && target != null)
         {
-            GetPullState(out _, out _, out float handLead);
-            taut = Mathf.Clamp01(handLead / tautDistance);
-            tension = Mathf.Clamp01(handLead / breakStretch);
+            float stretch = length - ropeLength;
+            taut = Mathf.Clamp01(stretch / tautStretch);
+            tension = Mathf.Clamp01(ropeStiffness * stretch / breakForce);
         }
 
         // Loose rope hangs down; pulled, it gets straight, then thinner and redder towards snapping.
@@ -469,35 +576,5 @@ public sealed class JengaHook : MonoBehaviour
     {
         Vector3 a = Abs(localDirection);
         return a.x >= a.y && a.x >= a.z ? 0 : a.y >= a.z ? 1 : 2;
-    }
-
-    /// <summary>
-    /// The axis whose face is nearest to <paramref name="point"/> (skipping <paramref name="skipAxis"/>).
-    /// <paramref name="offset"/> is the signed distance from the center along it, <paramref name="ratio"/> that
-    /// distance relative to half the size (0 = middle, 1 = on the face).
-    /// </summary>
-    private static int ClosestSideAxis(Transform block, Vector3 center, Vector3 size, Vector3 point, int skipAxis,
-        out float offset, out float ratio)
-    {
-        int best = 0;
-        offset = 0f;
-        ratio = -1f;
-        for (int i = 0; i < 3; i++)
-        {
-            if (i == skipAxis)
-                continue;
-
-            Vector3 localAxis = Vector3.zero;
-            localAxis[i] = 1f;
-            float axisOffset = Vector3.Dot(point - center, block.TransformDirection(localAxis).normalized);
-            float axisRatio = Mathf.Abs(axisOffset) / Mathf.Max(1e-4f, size[i] * 0.5f);
-            if (axisRatio <= ratio)
-                continue;
-
-            best = i;
-            offset = axisOffset;
-            ratio = axisRatio;
-        }
-        return best;
     }
 }

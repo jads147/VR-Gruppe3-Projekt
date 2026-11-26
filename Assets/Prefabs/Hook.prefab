@@ -134,7 +134,7 @@ Rigidbody:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 6508514113847872924}
   serializedVersion: 5
-  m_Mass: 1.25
+  m_Mass: 0.5
   m_LinearDamping: 0
   m_AngularDamping: 0.05
   m_CenterOfMass: {x: 0, y: 0, z: 0}
@@ -270,7 +270,7 @@ MonoBehaviour:
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 4
-  m_ThrowVelocityScale: 4
+  m_ThrowVelocityScale: 5
   m_ThrowAngularVelocityScale: 1
   m_ForceGravityOnDetach: 0
   m_UnparentTransformOnGrab: 1
@@ -299,16 +299,16 @@ MonoBehaviour:
     serializedVersion: 2
     m_Bits: 64
   minStickSpeed: 1
-  sideHitThreshold: 0.2
-  handPullToRemove: 0.6
-  stiffness: 40
-  damping: 8
-  maxAcceleration: 140
-  releaseWhenOut: 1
-  breakStretch: 0.5
+  breakForce: 400
+  ropeStiffness: 300
+  ropeDamping: 10
+  autoReel: 1
+  lockBlockHeight: 1
+  unlockWhenOut: 1
+  releaseButtons: 1
+  releaseWithEitherHand: 1
+  customReleaseAction: {fileID: 0}
   maxRopeLength: 30
-  missRopeTime: 1.5
-  maxFlightTime: 5
   destroyAfterUse: 1
   destroyDelay: 2
   ropeAnchor: {fileID: 1227277795186070919}
@@ -316,7 +316,7 @@ MonoBehaviour:
   slackColor: {r: 0.85, g: 0.65, b: 0.35, a: 1}
   tenseColor: {r: 1, g: 0.25, b: 0.15, a: 1}
   slackSag: 0.05
-  tautDistance: 0.07
+  tautStretch: 0.005
   lineSegments: 24
   lineMaterial: {fileID: 2100000, guid: 7c1e5a0b3d2f4e6a9b8c7d6e5f4a3b2c, type: 2}
 --- !u!114 &2383695793805154543
