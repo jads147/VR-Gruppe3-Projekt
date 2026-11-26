@@ -41,6 +41,23 @@ public class LPWVegetationOccluders : MonoBehaviour
         public Vector4 Visibility;
     }
 
+    // An active occluder this frame, before the (expensive) box and visibility are computed.
+    private struct Candidate
+    {
+        public Renderer Renderer;
+        public int Index;        // position in 'occluders', used for the round-robin visibility checks
+        public float SqrDistance;
+    }
+
+    private struct VisibilityState
+    {
+        public float Current;
+        public float Target;
+    }
+
+    private static readonly System.Comparison<Candidate> ByDistance =
+        (a, b) => a.SqrDistance.CompareTo(b.SqrDistance);
+
     [Header("Occluders")]
     [Tooltip("Renderers on these layers keep the vegetation in front of them hidden.")]
     [SerializeField] private LayerMask occluderLayers;
@@ -60,6 +77,9 @@ public class LPWVegetationOccluders : MonoBehaviour
     [SerializeField] private LayerMask visibilityBlockers;
     [Tooltip("How fast (per second) a block fades in/out when it becomes visible or hidden. 0 = instantly.")]
     [SerializeField, Min(0f)] private float visibilityFadeSpeed = 6f;
+    [Tooltip("How many blocks get their visibility re-checked (raycasts) per frame. The others keep their " +
+             "last result until it is their turn. Lower = cheaper, but reacts more slowly.")]
+    [SerializeField, Min(1)] private int visibilityChecksPerFrame = 12;
     [Tooltip("Draw the visibility rays in the Scene view (green = block visible, red = blocked).")]
     [SerializeField] private bool debugRays;
 
@@ -75,8 +95,14 @@ public class LPWVegetationOccluders : MonoBehaviour
     [SerializeField, Range(0f, 3f)] private float softness = 0.5f;
 
     private readonly List<Renderer> occluders = new();
+    private readonly HashSet<Renderer> occluderSet = new();
+    private readonly List<Renderer> rendererBuffer = new();
+    private readonly List<Renderer> removedBuffer = new();
+    private readonly List<Candidate> candidates = new();
     private readonly List<OccluderBox> boxes = new();
-    private readonly Dictionary<Renderer, float> visibilityByOccluder = new();
+    private readonly Dictionary<Renderer, VisibilityState> visibilityByOccluder = new();
+    private int visibilityCursor;
+    private bool syncedThisFrame;
     private readonly Vector4[] sphereData = new Vector4[MaxOccluders];
     private readonly Vector4[] row0 = new Vector4[MaxOccluders];
     private readonly Vector4[] row1 = new Vector4[MaxOccluders];
@@ -118,11 +144,7 @@ public class LPWVegetationOccluders : MonoBehaviour
         if (viewerTransform == null && Camera.main != null)
             viewerTransform = Camera.main.transform;
 
-        // The level is moved via transforms (OrbitAroundTarget) and auto sync is off,
-        // so bring the colliders up to date before raycasting against them.
-        if (requireVisibility)
-            Physics.SyncTransforms();
-
+        syncedThisFrame = false;
         CollectBoxes(viewerTransform);
 
         int count = Mathf.Min(boxes.Count, MaxOccluders);
@@ -154,28 +176,48 @@ public class LPWVegetationOccluders : MonoBehaviour
     private void CollectBoxes(Transform viewerTransform)
     {
         boxes.Clear();
+        candidates.Clear();
 
-        foreach (Renderer occluder in occluders)
+        Vector3 viewerPosition = viewerTransform != null ? viewerTransform.position : Vector3.zero;
+        for (int i = 0; i < occluders.Count; i++)
         {
+            Renderer occluder = occluders[i];
             // Blocks can be destroyed, disabled or moved to another layer at runtime.
             if (occluder == null || !occluder.enabled || !occluder.gameObject.activeInHierarchy)
                 continue;
             if ((occluderLayers.value & (1 << occluder.gameObject.layer)) == 0)
                 continue;
 
-            boxes.Add(CreateBox(occluder, viewerTransform));
+            candidates.Add(new Candidate
+            {
+                Renderer = occluder,
+                Index = i,
+                SqrDistance = (occluder.transform.position - viewerPosition).sqrMagnitude
+            });
         }
 
         // More occluders than the shader supports: keep the ones closest to the viewer.
-        if (boxes.Count > MaxOccluders && viewerTransform != null)
+        // Sorting first means boxes and raycasts are only computed for blocks that are actually sent.
+        if (candidates.Count > MaxOccluders && viewerTransform != null)
+            candidates.Sort(ByDistance);
+
+        // Round-robin window over 'occluders': only these blocks are raycast this frame.
+        int total = occluders.Count;
+        int windowStart = total > 0 ? visibilityCursor % total : 0;
+        int windowSize = Mathf.Min(visibilityChecksPerFrame, total);
+        visibilityCursor = total > 0 ? (windowStart + windowSize) % total : 0;
+
+        int count = Mathf.Min(candidates.Count, MaxOccluders);
+        for (int i = 0; i < count; i++)
         {
-            Vector3 viewerPosition = viewerTransform.position;
-            boxes.Sort((a, b) =>
-                ((Vector3)a.Sphere - viewerPosition).sqrMagnitude.CompareTo(((Vector3)b.Sphere - viewerPosition).sqrMagnitude));
+            Candidate candidate = candidates[i];
+            int offset = (candidate.Index - windowStart + total) % total;
+            bool recheck = offset < windowSize;
+            boxes.Add(CreateBox(candidate.Renderer, viewerTransform, recheck));
         }
     }
 
-    private OccluderBox CreateBox(Renderer occluder, Transform viewerTransform)
+    private OccluderBox CreateBox(Renderer occluder, Transform viewerTransform, bool recheck)
     {
         // Oriented box from the renderer's local bounds (the mesh shape in its own space).
         Transform occluderTransform = occluder.transform;
@@ -194,7 +236,7 @@ public class LPWVegetationOccluders : MonoBehaviour
         // World -> box space without scale, so distances in the shader stay in world units.
         Matrix4x4 worldToBox = Matrix4x4.TRS(center, rotation, Vector3.one).inverse;
 
-        float visibility = UpdateVisibility(occluder, viewerTransform, center, rotation, meshHalfExtents);
+        float visibility = UpdateVisibility(occluder, viewerTransform, center, rotation, meshHalfExtents, recheck);
 
         return new OccluderBox
         {
@@ -212,22 +254,39 @@ public class LPWVegetationOccluders : MonoBehaviour
         Transform viewerTransform,
         Vector3 center,
         Quaternion rotation,
-        Vector3 halfExtents)
+        Vector3 halfExtents,
+        bool recheck)
     {
-        float target = !requireVisibility || viewerTransform == null ||
-                       IsVisible(occluder.transform, viewerTransform.position, center, rotation, halfExtents)
-            ? 1f
-            : 0f;
+        bool known = visibilityByOccluder.TryGetValue(occluder, out VisibilityState state);
 
-        if (!visibilityByOccluder.TryGetValue(occluder, out float current))
-            current = target;
+        if (!requireVisibility || viewerTransform == null)
+        {
+            state.Target = 1f;
+        }
+        else if (recheck || !known)
+        {
+            // The level is moved via transforms (OrbitAroundTarget) and auto sync is off,
+            // so bring the colliders up to date once per frame, before the first raycast.
+            if (!syncedThisFrame)
+            {
+                Physics.SyncTransforms();
+                syncedThisFrame = true;
+            }
 
-        current = visibilityFadeSpeed <= 0f
-            ? target
-            : Mathf.MoveTowards(current, target, visibilityFadeSpeed * Time.deltaTime);
+            state.Target = IsVisible(occluder.transform, viewerTransform.position, center, rotation, halfExtents)
+                ? 1f
+                : 0f;
+        }
 
-        visibilityByOccluder[occluder] = current;
-        return current;
+        if (!known)
+            state.Current = state.Target;
+
+        state.Current = visibilityFadeSpeed <= 0f
+            ? state.Target
+            : Mathf.MoveTowards(state.Current, state.Target, visibilityFadeSpeed * Time.deltaTime);
+
+        visibilityByOccluder[occluder] = state;
+        return state.Current;
     }
 
     private bool IsVisible(
@@ -280,32 +339,35 @@ public class LPWVegetationOccluders : MonoBehaviour
     {
         nextRefreshTime = Time.time + refreshInterval;
         occluders.Clear();
+        occluderSet.Clear();
+        rendererBuffer.Clear();
 
-        Renderer[] renderers = searchRoot != null
-            ? searchRoot.GetComponentsInChildren<Renderer>(true)
-            : FindObjectsByType<Renderer>(FindObjectsInactive.Include);
+        if (searchRoot != null)
+            searchRoot.GetComponentsInChildren(true, rendererBuffer); // reuses the buffer, no garbage
+        else
+            rendererBuffer.AddRange(FindObjectsByType<Renderer>(FindObjectsInactive.Include));
 
-        foreach (Renderer candidate in renderers)
+        foreach (Renderer candidate in rendererBuffer)
         {
             if ((candidate is MeshRenderer or SkinnedMeshRenderer) &&
                 (occluderLayers.value & (1 << candidate.gameObject.layer)) != 0)
             {
                 occluders.Add(candidate);
+                occluderSet.Add(candidate);
             }
         }
+        rendererBuffer.Clear();
 
         // Forget the visibility of occluders that no longer exist.
-        List<Renderer> removed = null;
+        removedBuffer.Clear();
         foreach (Renderer known in visibilityByOccluder.Keys)
         {
-            if (known == null || !occluders.Contains(known))
-                (removed ??= new List<Renderer>()).Add(known);
+            if (known == null || !occluderSet.Contains(known))
+                removedBuffer.Add(known);
         }
 
-        if (removed != null)
-        {
-            foreach (Renderer known in removed)
-                visibilityByOccluder.Remove(known);
-        }
+        foreach (Renderer known in removedBuffer)
+            visibilityByOccluder.Remove(known);
+        removedBuffer.Clear();
     }
 }

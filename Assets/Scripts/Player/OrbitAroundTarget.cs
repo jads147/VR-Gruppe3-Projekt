@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.XR;
@@ -17,8 +18,22 @@ public class OrbitAroundTarget : MonoBehaviour
     [SerializeField] private Transform[] orbitTogether;
     [Tooltip("Falls back to the XR device API (left controller primary 2D axis) when the action delivers no input.")]
     [SerializeField] private bool useXRDeviceFallback = true;
+    [Tooltip("While orbiting, how often (seconds) to look for rigidbodies that were spawned or destroyed.")]
+    [SerializeField, Min(0.05f)] private float bodyRefreshInterval = 0.5f;
+
+    private struct CachedBody
+    {
+        public Rigidbody Body;
+        public XRGrabInteractable Grab;
+    }
 
     private XRInputDevice leftController;
+
+    // Rigidbodies below this transform (index 0) and below each orbitTogether entry (index 1..n).
+    private readonly List<List<CachedBody>> cachedBodies = new();
+    private readonly List<Rigidbody> bodyBuffer = new();
+    private int lastOrbitFrame = -10;
+    private float nextBodyRefreshTime;
 
     private void OnEnable()
     {
@@ -53,23 +68,59 @@ public class OrbitAroundTarget : MonoBehaviour
         if (target == null)
             return;
 
+        // A new orbit gesture (nothing orbited last frame) or the refresh interval elapsed:
+        // rebuild the rigidbody cache instead of searching the hierarchy every frame.
+        int frame = Time.frameCount;
+        if (frame - lastOrbitFrame > 1 || Time.time >= nextBodyRefreshTime)
+            RefreshBodies();
+        lastOrbitFrame = frame;
+
         float angle = Mathf.Clamp(horizontal, -1f, 1f) * orbitSpeed * Time.deltaTime;
         Quaternion orbit = Quaternion.AngleAxis(angle, Vector3.up);
 
         Orbit(transform, orbit, rotateWithOrbit);
-        OrbitDynamicBodies(transform, orbit);
+        OrbitDynamicBodies(cachedBodies[0], orbit);
         if (orbitTogether == null)
             return;
 
         // Always rotate carried objects, otherwise the background shifts relative to the player.
-        foreach (Transform carried in orbitTogether)
+        for (int i = 0; i < orbitTogether.Length; i++)
         {
+            Transform carried = orbitTogether[i];
             if (carried == null)
                 continue;
 
             Orbit(carried, orbit, true);
-            OrbitDynamicBodies(carried, orbit);
+            OrbitDynamicBodies(cachedBodies[i + 1], orbit);
         }
+    }
+
+    private void RefreshBodies()
+    {
+        nextBodyRefreshTime = Time.time + bodyRefreshInterval;
+
+        int rootCount = 1 + (orbitTogether?.Length ?? 0);
+        while (cachedBodies.Count < rootCount)
+            cachedBodies.Add(new List<CachedBody>());
+
+        FillBodies(transform, cachedBodies[0]);
+        for (int i = 1; i < rootCount; i++)
+            FillBodies(orbitTogether[i - 1], cachedBodies[i]);
+    }
+
+    private void FillBodies(Transform root, List<CachedBody> result)
+    {
+        result.Clear();
+        if (root == null)
+            return;
+
+        root.GetComponentsInChildren(bodyBuffer); // reuses the buffer, no garbage
+        foreach (Rigidbody body in bodyBuffer)
+        {
+            body.TryGetComponent(out XRGrabInteractable grab);
+            result.Add(new CachedBody { Body = body, Grab = grab });
+        }
+        bodyBuffer.Clear();
     }
 
     private void Orbit(Transform moved, Quaternion orbit, bool rotate)
@@ -82,11 +133,15 @@ public class OrbitAroundTarget : MonoBehaviour
 
     // Non-kinematic rigidbodies ignore parent movement (physics writes their pose back),
     // so they have to be orbited through the physics state, including their velocity.
-    private void OrbitDynamicBodies(Transform root, Quaternion orbit)
+    private void OrbitDynamicBodies(List<CachedBody> bodies, Quaternion orbit)
     {
-        foreach (Rigidbody body in root.GetComponentsInChildren<Rigidbody>())
+        foreach (CachedBody cached in bodies)
         {
-            if (body.isKinematic || IsHeld(body))
+            Rigidbody body = cached.Body;
+            // Destroyed, disabled or moved out of the level since the last refresh.
+            if (body == null || !body.gameObject.activeInHierarchy)
+                continue;
+            if (body.isKinematic || (cached.Grab != null && cached.Grab.isSelected))
                 continue;
 
             Vector3 newPosition = target.position + orbit * (body.position - target.position);
@@ -97,12 +152,6 @@ public class OrbitAroundTarget : MonoBehaviour
             body.linearVelocity = orbit * body.linearVelocity;
             body.angularVelocity = orbit * body.angularVelocity;
         }
-    }
-
-    // A held object follows the hand, not the level.
-    private static bool IsHeld(Rigidbody body)
-    {
-        return body.TryGetComponent(out XRGrabInteractable grab) && grab.isSelected;
     }
 
     private float ReadHorizontal()

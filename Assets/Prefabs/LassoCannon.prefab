@@ -529,4 +529,4 @@ MonoBehaviour:
   slackSag: 0.05
   tautDistance: 0.08
   lineSegments: 24
-  lineMaterial: {fileID: 0}
+  lineMaterial: {fileID: 2100000, guid: 7c1e5a0b3d2f4e6a9b8c7d6e5f4a3b2c, type: 2}
