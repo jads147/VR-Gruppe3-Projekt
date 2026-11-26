@@ -3,7 +3,17 @@ guid: b2bef9b9311c9ed4e8fcc904a556bb42
 ModelImporter:
   serializedVersion: 24501
   internalIDToNameTable: []
-  externalObjects: {}
+  externalObjects:
+  - first:
+      type: UnityEngine:Material
+      assembly: UnityEngine.CoreModule
+      name: T_TerrainBlend
+    second: {fileID: 2100000, guid: e2bda160d31c67f458899bfb49c366f1, type: 2}
+  - first:
+      type: UnityEngine:Material
+      assembly: UnityEngine.CoreModule
+      name: WaterMat
+    second: {fileID: 2100000, guid: bcdda83d07502aa4bbeb201ad54ac959, type: 2}
   materials:
     materialImportMode: 2
     materialName: 0

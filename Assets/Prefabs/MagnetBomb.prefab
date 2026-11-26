@@ -232,8 +232,8 @@ MonoBehaviour:
   collisionLayers:
     serializedVersion: 2
     m_Bits: 1096
-  radius: 2
-  force: 30
+  radius: 3.5
+  force: 35
   affectedLayers:
     serializedVersion: 2
     m_Bits: 64
