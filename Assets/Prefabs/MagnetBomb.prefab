@@ -169,7 +169,7 @@ MonoBehaviour:
   m_SnapToColliderVolume: 1
   m_ReinitializeDynamicAttachEverySingleGrab: 1
   m_AttachEaseInTime: 0.15
-  m_MovementType: 1
+  m_MovementType: 2
   m_PredictedVisualsTransform: {fileID: 0}
   m_VelocityDamping: 1
   m_VelocityScale: 1
@@ -273,6 +273,10 @@ PrefabInstance:
     - target: {fileID: -9116560068945409902, guid: 22a2c4fc6712cee418de9a749880f42b, type: 3}
       propertyPath: m_Name
       value: magnet_mp_1
+      objectReference: {fileID: 0}
+    - target: {fileID: -1734496292150058253, guid: 22a2c4fc6712cee418de9a749880f42b, type: 3}
+      propertyPath: m_CastShadows
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 7744477260055699459, guid: 22a2c4fc6712cee418de9a749880f42b, type: 3}
       propertyPath: m_LocalPosition.x

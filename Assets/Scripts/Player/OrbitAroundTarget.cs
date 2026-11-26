@@ -6,7 +6,7 @@ using UnityEngine.XR.Interaction.Toolkit.Interactables;
 using XRCommonUsages = UnityEngine.XR.CommonUsages;
 using XRInputDevice = UnityEngine.XR.InputDevice;
 
-/// <summary>Moves this GameObject around a target using the horizontal axis of a controller stick.</summary>
+/// <summary>Moves this GameObject around a target using the horizontal axis of either controller stick (left- and right-handed).</summary>
 public class OrbitAroundTarget : MonoBehaviour
 {
     [SerializeField] private Transform target;
@@ -16,7 +16,7 @@ public class OrbitAroundTarget : MonoBehaviour
     [SerializeField] private bool rotateWithOrbit = true;
     [Tooltip("Orbited and rotated together with this GameObject (e.g. the level root), so only the target appears to turn.")]
     [SerializeField] private Transform[] orbitTogether;
-    [Tooltip("Falls back to the XR device API (left controller primary 2D axis) when the action delivers no input.")]
+    [Tooltip("Falls back to the XR device API (primary 2D axis of both controllers) when the action delivers no input.")]
     [SerializeField] private bool useXRDeviceFallback = true;
     [Tooltip("While orbiting, how often (seconds) to look for rigidbodies that were spawned or destroyed.")]
     [SerializeField, Min(0.05f)] private float bodyRefreshInterval = 0.5f;
@@ -28,6 +28,7 @@ public class OrbitAroundTarget : MonoBehaviour
     }
 
     private XRInputDevice leftController;
+    private XRInputDevice rightController;
 
     // Rigidbodies below this transform (index 0) and below each orbitTogether entry (index 1..n).
     private readonly List<List<CachedBody>> cachedBodies = new();
@@ -160,6 +161,7 @@ public class OrbitAroundTarget : MonoBehaviour
         InputAction action = stickAction.action;
         if (action != null && action.activeControl != null)
         {
+            // With bindings for both sticks the action reports the stronger deflection.
             value = action.activeControl.valueType == typeof(Vector2)
                 ? action.ReadValue<Vector2>().x
                 : action.ReadValue<float>();
@@ -168,12 +170,20 @@ public class OrbitAroundTarget : MonoBehaviour
         if (Mathf.Abs(value) > deadzone || !useXRDeviceFallback)
             return value;
 
-        if (!leftController.isValid)
-            leftController = InputDevices.GetDeviceAtXRNode(XRNode.LeftHand);
+        // Either hand may orbit, so left-handed players can use the right stick and vice versa.
+        float left = ReadDeviceStickX(ref leftController, XRNode.LeftHand);
+        float right = ReadDeviceStickX(ref rightController, XRNode.RightHand);
+        float strongest = Mathf.Abs(left) >= Mathf.Abs(right) ? left : right;
+        return Mathf.Abs(strongest) > Mathf.Abs(value) ? strongest : value;
+    }
 
-        if (leftController.isValid && leftController.TryGetFeatureValue(XRCommonUsages.primary2DAxis, out Vector2 stick))
-            return stick.x;
+    private static float ReadDeviceStickX(ref XRInputDevice device, XRNode node)
+    {
+        if (!device.isValid)
+            device = InputDevices.GetDeviceAtXRNode(node);
 
-        return value;
+        return device.isValid && device.TryGetFeatureValue(XRCommonUsages.primary2DAxis, out Vector2 stick)
+            ? stick.x
+            : 0f;
     }
 }
