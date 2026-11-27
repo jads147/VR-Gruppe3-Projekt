@@ -22,6 +22,10 @@ public class GameStarter : MonoBehaviour
     [Tooltip("Buttons, die während der Runde nicht klickbar sein sollen (z.B. Tutorial- und Start-Button).")]
     [SerializeField] private Selectable[] disableOnStart;
 
+    [Tooltip("Start-Button. Ist nicht klickbar, solange das gewählte Level gesperrt ist. " +
+             "Leer = der Button in der Szene, dessen OnClick StartGame() dieses GameStarters aufruft.")]
+    [SerializeField] private Selectable startButton;
+
     [Tooltip("Zusätzliche Aktionen beim Start (optional).")]
     [SerializeField] private UnityEvent onGameStarted;
 
@@ -30,10 +34,50 @@ public class GameStarter : MonoBehaviour
 
     public bool HasStarted { get; private set; }
 
+    private void Awake()
+    {
+        if (startButton == null)
+            startButton = FindStartButton();
+    }
+
+    private void OnEnable()
+    {
+        LevelManager.SelectionChanged += RefreshStartButton;
+        LevelManager.LevelEnded += RefreshStartButton;
+        Leaderboard.Changed += RefreshStartButton;
+        RefreshStartButton();
+    }
+
+    private void OnDisable()
+    {
+        LevelManager.SelectionChanged -= RefreshStartButton;
+        LevelManager.LevelEnded -= RefreshStartButton;
+        Leaderboard.Changed -= RefreshStartButton;
+    }
+
+    // Falls OnEnable vor dem Awake des LevelManagers lief.
+    private void Start() => RefreshStartButton();
+
+    /// <summary>True, wenn das gewählte Level gesperrt ist (Max-Punkte im Level davor fehlen noch).</summary>
+    public static bool IsSelectedLevelLocked
+    {
+        get
+        {
+            var levels = LevelManager.Current;
+            return levels != null && levels.Levels.Count > 0 && !levels.IsSelectedUnlocked;
+        }
+    }
+
     public void StartGame()
     {
         if (HasStarted)
             return;
+
+        if (IsSelectedLevelLocked)
+        {
+            Debug.Log("[GameStarter] Das gewählte Level ist noch gesperrt – erst im Level davor die Max-Punkte holen.", this);
+            return;
+        }
 
         HasStarted = true;
 
@@ -42,6 +86,7 @@ public class GameStarter : MonoBehaviour
             tutorialSpawner.Lock();
 
         SetInteractable(false);
+        RefreshStartButton();
 
         // Im Menü/Tutorial gespawnte Items entfernen, sonst könnte man sie ansammeln und mit in die Runde nehmen.
         ItemSpawner.DestroyAllSpawned();
@@ -72,6 +117,7 @@ public class GameStarter : MonoBehaviour
             tutorialSpawner.Unlock();
 
         SetInteractable(true);
+        RefreshStartButton();
         onReadyForNextRound?.Invoke();
     }
 
@@ -82,5 +128,26 @@ public class GameStarter : MonoBehaviour
             if (selectable != null)
                 selectable.interactable = interactable;
         }
+    }
+
+    /// <summary>Start-Button nur klickbar, wenn keine Runde läuft und das gewählte Level freigeschaltet ist.</summary>
+    private void RefreshStartButton()
+    {
+        if (startButton != null)
+            startButton.interactable = !HasStarted && !IsSelectedLevelLocked;
+    }
+
+    private Button FindStartButton()
+    {
+        foreach (var button in FindObjectsByType<Button>(FindObjectsInactive.Include))
+        {
+            for (int i = 0; i < button.onClick.GetPersistentEventCount(); i++)
+            {
+                if (button.onClick.GetPersistentTarget(i) == this &&
+                    button.onClick.GetPersistentMethodName(i) == nameof(StartGame))
+                    return button;
+            }
+        }
+        return null;
     }
 }

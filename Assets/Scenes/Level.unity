@@ -17075,19 +17075,19 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: ee74573d602a16646a7d028ab0de777d, type: 3}
       propertyPath: m_LocalRotation.w
-      value: 0.89955777
+      value: 0.83914554
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: ee74573d602a16646a7d028ab0de777d, type: 3}
       propertyPath: m_LocalRotation.x
-      value: -0
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: ee74573d602a16646a7d028ab0de777d, type: 3}
       propertyPath: m_LocalRotation.y
-      value: -0.43680182
+      value: -0.5439069
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: ee74573d602a16646a7d028ab0de777d, type: 3}
       propertyPath: m_LocalRotation.z
-      value: -0
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: ee74573d602a16646a7d028ab0de777d, type: 3}
       propertyPath: m_LocalEulerAnglesHint.x
@@ -17095,7 +17095,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: ee74573d602a16646a7d028ab0de777d, type: 3}
       propertyPath: m_LocalEulerAnglesHint.y
-      value: -51.8
+      value: -65.9
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: ee74573d602a16646a7d028ab0de777d, type: 3}
       propertyPath: m_LocalEulerAnglesHint.z
@@ -29382,15 +29382,20 @@ MonoBehaviour:
   - id: 0
     displayName: Beginning
     root: {fileID: 2451480582278229916}
+    requiredScore: 0
   - id: 1
     displayName: House
     root: {fileID: 4986327273527283196}
+    requiredScore: 0
   - id: 2
     displayName: Pyramide
     root: {fileID: 2120068493}
+    requiredScore: 0
   - id: 3
     displayName: Skyline
     root: {fileID: 1710092501}
+    requiredScore: 0
+  unlockAllLevels: 0
 --- !u!1001 &1340225769
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -39974,6 +39979,10 @@ MonoBehaviour:
   previousButton: {fileID: 500782847}
   nextButton: {fileID: 578472829}
   format: '{0}'
+  lockedFormat: '{0} (Locked)'
+  lockedHint: {fileID: 0}
+  lockedHintFormat: Get all {1} points in {2} to unlock ({0}/{1})
+  lockedIndicator: {fileID: 0}
   noLevelsText: '-'
 --- !u!114 &1762422569
 MonoBehaviour:
@@ -41000,6 +41009,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ScoreHUD
   scoreText: {fileID: 523589715}
+  roundFormat: 'Score: {0}/{1}'
+  format: 'Score: {0}'
 --- !u!4 &1804772088
 Transform:
   m_ObjectHideFlags: 0
@@ -51445,6 +51456,7 @@ MonoBehaviour:
   disableOnStart:
   - {fileID: 2068256290320098961}
   - {fileID: 3854138032202793385}
+  startButton: {fileID: 0}
   onGameStarted:
     m_PersistentCalls:
       m_Calls: []

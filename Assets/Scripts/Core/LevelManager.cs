@@ -13,6 +13,10 @@ using UnityEngine;
 /// "Reload Game" (<see cref="RoundReset"/>) entfernt die Kopie ebenfalls, ohne die Szene neu zu laden.
 /// Die Auswahl bleibt auch über ein echtes Neuladen der Szene erhalten. Jede Level-ID hat ihre eigene Bestenliste –
 /// die ID daher nach dem ersten Spielen nicht mehr ändern, sonst landen alte Einträge in einer "verwaisten" Liste.
+///
+/// Freischalten: Ein Level ist erst spielbar, wenn in den Leveln davor die Max-Punkte (bzw. "Required Score")
+/// erreicht und in die Bestenliste eingetragen wurden. Gilt als Bestwert der Platz 1 der Bestenliste – wird
+/// die Bestenliste gelöscht, sind die Level also wieder gesperrt.
 /// </summary>
 public class LevelManager : MonoBehaviour
 {
@@ -28,11 +32,73 @@ public class LevelManager : MonoBehaviour
         [Tooltip("Objekt des Levels in der Szene. Wird beim Start deaktiviert und erst bei Start Game aktiviert.")]
         public GameObject root;
 
+        [Tooltip("Punkte, die man in diesem Level erreichen muss, damit das nächste Level freigeschaltet wird. " +
+                 "0 = automatisch: Summe aller positiven Punkte-Blöcke (Point_OBJ) im Level-Objekt (= Max-Punkte).")]
+        [Min(0)] public int requiredScore;
+
+        [NonSerialized] private int m_AutoMaxScore;
+        [NonSerialized] private bool m_AutoMaxScoreCached;
+
         public string Id => !string.IsNullOrWhiteSpace(id) ? id.Trim() : root != null ? root.name : Leaderboard.DefaultLevelId;
         public string DisplayName => !string.IsNullOrWhiteSpace(displayName) ? displayName.Trim() : Id;
+
+        /// <summary>Punkte, die man zum Freischalten des nächsten Levels braucht (Standard: Max-Punkte des Levels).</summary>
+        public int RequiredScore => requiredScore > 0 ? requiredScore : MaxScore;
+
+        /// <summary>Max-Punkte des Levels: Summe aller positiven Punkte-Blöcke (Point_OBJ) im Level-Objekt.</summary>
+        public int MaxScore
+        {
+            get
+            {
+                // Die Vorlage ändert sich zur Laufzeit nicht (gespielt wird mit einer Kopie) -> einmal zählen reicht.
+                if (!m_AutoMaxScoreCached || !Application.isPlaying)
+                {
+                    m_AutoMaxScore = CountMaxScore(root);
+                    m_AutoMaxScoreCached = Application.isPlaying;
+                }
+                return m_AutoMaxScore;
+            }
+        }
+
+        /// <summary>Bester eingetragener Score dieses Levels (0, falls noch nie gespielt).</summary>
+        public int BestScore
+        {
+            get
+            {
+                var entries = Leaderboard.GetEntries(Id);
+                return entries.Count > 0 ? entries[0].score : 0;
+            }
+        }
+
+        /// <summary>True, wenn in diesem Level schon ein Score mit mindestens <see cref="RequiredScore"/> eingetragen wurde.</summary>
+        public bool IsCompleted
+        {
+            get
+            {
+                var entries = Leaderboard.GetEntries(Id);
+                return entries.Count > 0 && entries[0].score >= RequiredScore;
+            }
+        }
+
+        private static int CountMaxScore(GameObject levelRoot)
+        {
+            if (levelRoot == null)
+                return 0;
+
+            int sum = 0;
+            foreach (var pointBlock in levelRoot.GetComponentsInChildren<Point_OBJ>(true))
+            {
+                if (pointBlock.Points > 0)
+                    sum += pointBlock.Points;
+            }
+            return sum;
+        }
     }
 
     [SerializeField] private List<Level> levels = new();
+
+    [Tooltip("Zum Testen: alle Level sind spielbar, egal welche Punkte erreicht wurden.")]
+    [SerializeField] private bool unlockAllLevels = false;
 
     // Statisch, damit die Auswahl ein Neuladen der Szene überlebt.
     private static int s_SelectedIndex;
@@ -58,6 +124,31 @@ public class LevelManager : MonoBehaviour
     public int SelectedIndex => levels.Count == 0 ? -1 : Mathf.Clamp(s_SelectedIndex, 0, levels.Count - 1);
     public Level SelectedLevel => levels.Count == 0 ? null : levels[SelectedIndex];
     public bool HasStarted { get; private set; }
+
+    /// <summary>True, wenn das gewählte Level gespielt werden darf.</summary>
+    public bool IsSelectedUnlocked => IsUnlocked(SelectedIndex);
+
+    /// <summary>
+    /// Ein Level ist freigeschaltet, wenn in ALLEN Leveln davor die nötigen Punkte (Standard: Max-Punkte)
+    /// erreicht und eingetragen wurden. Das erste Level ist immer frei.
+    /// </summary>
+    public bool IsUnlocked(int index)
+    {
+        if (index < 0 || index >= levels.Count)
+            return false;
+        if (unlockAllLevels)
+            return true;
+
+        for (int i = 0; i < index; i++)
+        {
+            if (!levels[i].IsCompleted)
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>Das Level vor dem angegebenen (dessen Punkte zum Freischalten fehlen), sonst null.</summary>
+    public Level GetPreviousLevel(int index) => index > 0 && index <= levels.Count ? levels[index - 1] : null;
 
     /// <summary>Die gerade gespielte Kopie des Levels (oder null).</summary>
     public GameObject ActiveLevelInstance { get; private set; }
@@ -125,6 +216,12 @@ public class LevelManager : MonoBehaviour
     {
         if (HasStarted || SelectedLevel == null)
             return;
+
+        if (!IsSelectedUnlocked)
+        {
+            Debug.Log($"[LevelManager] Level \"{SelectedLevel.DisplayName}\" ist noch gesperrt.", this);
+            return;
+        }
 
         HasStarted = true;
 
